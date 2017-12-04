@@ -30,9 +30,9 @@ public class DisplayRtspActivity extends AppCompatActivity
     super.onCreate(savedInstanceState);
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     setContentView(R.layout.activity_example);
-    button = (Button) findViewById(R.id.b_start_stop);
+    button = findViewById(R.id.b_start_stop);
     button.setOnClickListener(this);
-    etUrl = (EditText) findViewById(R.id.et_rtp_url);
+    etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtsp);
     rtspDisplay = new RtspDisplay(this, this);
   }
@@ -48,11 +48,12 @@ public class DisplayRtspActivity extends AppCompatActivity
   }
 
   @Override
-  public void onConnectionFailedRtsp() {
+  public void onConnectionFailedRtsp(final String reason) {
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
-        Toast.makeText(DisplayRtspActivity.this, "Connection failed", Toast.LENGTH_SHORT).show();
+        Toast.makeText(DisplayRtspActivity.this, "Connection failed. " + reason, Toast.LENGTH_SHORT)
+            .show();
         rtspDisplay.stopStream();
         button.setText(R.string.start_button);
       }
@@ -93,9 +94,7 @@ public class DisplayRtspActivity extends AppCompatActivity
   protected void onActivityResult(int requestCode, int resultCode, Intent data) {
     if (requestCode == REQUEST_CODE && resultCode == Activity.RESULT_OK) {
       if (rtspDisplay.prepareAudio() && rtspDisplay.prepareVideo()) {
-        if (Build.VERSION.SDK_INT >= 21) {
-          rtspDisplay.startStream(etUrl.getText().toString(), resultCode, data);
-        }
+        rtspDisplay.startStream(etUrl.getText().toString(), resultCode, data);
       } else {
         Toast.makeText(this, "Error preparing stream, This device cant do it", Toast.LENGTH_SHORT)
             .show();

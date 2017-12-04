@@ -3,7 +3,6 @@ package com.pedro.encoder.utils.gl;
 import android.graphics.Bitmap;
 import android.util.Log;
 import com.pedro.encoder.utils.gl.gif.GifDecoder;
-import com.pedro.encoder.utils.gl.watermark.WatermarkUtil;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -15,16 +14,23 @@ public class GifStreamObject extends StreamObjectBase {
 
   private static final String TAG = "GifStreamObject";
 
-  private int streamWidth, streamHeight;
   private int numFrames;
   private Bitmap[] gifBitmaps;
   private int[] gifDelayFrames;
   private long startDelayFrame;
   private int currentGifFrame;
 
-  public GifStreamObject(int streamWidth, int streamHeight) {
-    this.streamWidth = streamWidth;
-    this.streamHeight = streamHeight;
+  public GifStreamObject() {
+  }
+
+  @Override
+  public int getWidth() {
+    return gifBitmaps[0].getWidth();
+  }
+
+  @Override
+  public int getHeight() {
+    return gifBitmaps[0].getHeight();
   }
 
   public void load(InputStream inputStreamGif) throws IOException {
@@ -39,9 +45,7 @@ public class GifStreamObject extends StreamObjectBase {
         gifBitmaps[i] = gifDecoder.getNextFrame();
         gifDelayFrames[i] = gifDecoder.getNextDelay();
       }
-      resize(gifDecoder.getWidth(), gifDecoder.getHeight());
-      setPosition(0, 0);
-      Log.i(TAG, "finish load gif frames!!!");
+      Log.i(TAG, "finish load gif frames");
     } else {
       throw new RuntimeException("read gif error");
     }
@@ -51,14 +55,6 @@ public class GifStreamObject extends StreamObjectBase {
   public void resize(int width, int height) {
     for (int i = 0; i < numFrames; i++) {
       gifBitmaps[i] = Bitmap.createScaledBitmap(gifBitmaps[i], width, height, false);
-    }
-  }
-
-  @Override
-  public void setPosition(int positionX, int positionY) {
-    WatermarkUtil watermarkUtil = new WatermarkUtil(streamWidth, streamHeight);
-    for (int i = 0; i < numFrames; i++) {
-      gifBitmaps[i] = watermarkUtil.createWatermarkBitmap(gifBitmaps[i], positionX, positionY);
     }
   }
 

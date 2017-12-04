@@ -1,7 +1,7 @@
 package com.pedro.rtsp.rtcp;
 
-import android.os.SystemClock;
 import android.util.Log;
+import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
@@ -15,9 +15,11 @@ public class SenderReportUdp extends BaseSenderReport {
 
   private MulticastSocket socket;
   private DatagramPacket datagramPacket;
+  private ConnectCheckerRtsp connectCheckerRtsp;
 
-  public SenderReportUdp() {
+  public SenderReportUdp(ConnectCheckerRtsp connectCheckerRtsp) {
     super();
+    this.connectCheckerRtsp = connectCheckerRtsp;
     try {
       socket = new MulticastSocket();
     } catch (IOException e) {
@@ -36,23 +38,10 @@ public class SenderReportUdp extends BaseSenderReport {
    *
    * @param length The length of the packet
    * @param rtpts The RTP timestamp.
+   * @param port to send packet
    **/
   public void update(int length, long rtpts, int port) {
-    mPacketCount += 1;
-    mOctetCount += length;
-    setLong(mPacketCount, 20, 24);
-    setLong(mOctetCount, 24, 28);
-
-    now = SystemClock.elapsedRealtime();
-    delta += old != 0 ? now - old : 0;
-    old = now;
-    if (interval > 0) {
-      if (delta >= interval) {
-        // We send a Sender Report
-        send(System.nanoTime(), rtpts, port);
-        delta = 0;
-      }
-    }
+    if (updateSend(length)) send(System.nanoTime(), rtpts, port);
   }
 
   public void setDestination(InetAddress dest, int dport) {
@@ -70,18 +59,15 @@ public class SenderReportUdp extends BaseSenderReport {
     new Thread(new Runnable() {
       @Override
       public void run() {
-        long hb = ntpts / 1000000000;
-        long lb = ((ntpts - hb * 1000000000) * 4294967296L) / 1000000000;
-        setLong(hb, 8, 12);
-        setLong(lb, 12, 16);
-        setLong(rtpts, 16, 20);
+        setData(ntpts, rtpts);
         datagramPacket.setLength(PACKET_LENGTH);
         datagramPacket.setPort(port);
-        Log.i(TAG, "send report, " + datagramPacket.getPort() + " Port");
         try {
           socket.send(datagramPacket);
+          Log.i(TAG, "send report, " + datagramPacket.getPort() + " Port");
         } catch (IOException e) {
-          e.printStackTrace();
+          Log.e(TAG, "send UDP report error", e);
+          connectCheckerRtsp.onConnectionFailedRtsp("Error send report, " + e.getMessage());
         }
       }
     }).start();

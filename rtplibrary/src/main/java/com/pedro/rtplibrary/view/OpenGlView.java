@@ -1,6 +1,7 @@
 package com.pedro.rtplibrary.view;
 
 import android.content.Context;
+import android.graphics.PointF;
 import android.graphics.SurfaceTexture;
 import android.graphics.SurfaceTexture.OnFrameAvailableListener;
 import android.os.Build;
@@ -10,11 +11,12 @@ import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import com.pedro.encoder.input.gl.GlWatermarkRenderer;
 import com.pedro.encoder.input.gl.SurfaceManager;
-import com.pedro.encoder.input.gl.TextureManagerWatermark;
 import com.pedro.encoder.utils.gl.GifStreamObject;
 import com.pedro.encoder.utils.gl.ImageStreamObject;
 import com.pedro.encoder.utils.gl.TextStreamObject;
+import com.pedro.encoder.utils.gl.TranslateTo;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -34,17 +36,25 @@ public class OpenGlView extends SurfaceView
   private SurfaceManager surfaceManager = null;
   private SurfaceManager surfaceManagerEncoder = null;
 
-  private TextureManagerWatermark textureManager = null;
+  private GlWatermarkRenderer textureManager = null;
 
   private final Semaphore semaphore = new Semaphore(0);
   private final Object sync = new Object();
   private int previewWidth, previewHeight;
   private int encoderWidth, encoderHeight;
   private boolean loadStreamObject = false;
+  private boolean loadAlpha = false;
+  private boolean loadScale = false;
+  private boolean loadPosition = false;
+  private boolean loadPositionTo = false;
 
   private TextStreamObject textStreamObject;
   private ImageStreamObject imageStreamObject;
   private GifStreamObject gifStreamObject;
+  private float alpha;
+  private float scaleX, scaleY;
+  private float positionX, positionY;
+  private TranslateTo positionTo;
   private Surface surface;
 
   public OpenGlView(Context context, AttributeSet attrs) {
@@ -64,6 +74,7 @@ public class OpenGlView extends SurfaceView
     synchronized (sync) {
       this.surface = surface;
       surfaceManagerEncoder = new SurfaceManager(surface, surfaceManager);
+      textureManager.setStreamSize(encoderWidth, encoderHeight);
     }
   }
 
@@ -102,10 +113,49 @@ public class OpenGlView extends SurfaceView
     loadStreamObject = true;
   }
 
+  public void clear() {
+    this.textStreamObject = null;
+    this.gifStreamObject = null;
+    this.imageStreamObject = null;
+    loadStreamObject = true;
+  }
+
+  public void setStreamObjectAlpha(float alpha) {
+    this.alpha = alpha;
+    loadAlpha = true;
+  }
+
+  public void setStreamObjectSize(float sizeX, float sizeY) {
+    this.scaleX = sizeX;
+    this.scaleY = sizeY;
+    loadScale = true;
+  }
+
+  public void setStreamObjectPosition(float x, float y) {
+    this.positionX = x;
+    this.positionY = y;
+    loadPosition = true;
+  }
+
+  public void setStreamObjectPosition(TranslateTo translateTo) {
+    this.positionTo = translateTo;
+    loadPositionTo = true;
+  }
+
+  public PointF getScale() {
+    if (textureManager != null) return textureManager.getScale();
+    else return new PointF(0f, 0f);
+  }
+
+  public PointF getPosition() {
+    if (textureManager != null) return textureManager.getPosition();
+    else return new PointF(0f, 0f);
+  }
+
   public void startGLThread() {
     Log.i(TAG, "Thread started.");
     if (textureManager == null) {
-      textureManager = new TextureManagerWatermark(getContext());
+      textureManager = new GlWatermarkRenderer(getContext());
     }
     if (textureManager.getSurfaceTexture() == null) {
       thread = new Thread(OpenGlView.this);
@@ -138,10 +188,11 @@ public class OpenGlView extends SurfaceView
     try {
       while (running) {
         synchronized (sync) {
-          sync.wait(2500);
+          sync.wait(500);
           if (frameAvailable) {
             frameAvailable = false;
             surfaceManager.makeCurrent();
+
             //need load a stream object
             if (loadStreamObject) {
               if (textStreamObject != null) {
@@ -150,6 +201,8 @@ public class OpenGlView extends SurfaceView
                 textureManager.setImage(imageStreamObject);
               } else if (gifStreamObject != null) {
                 textureManager.setGif(gifStreamObject);
+              } else {
+                textureManager.clear();
               }
             }
             textureManager.updateFrame();
@@ -172,6 +225,26 @@ public class OpenGlView extends SurfaceView
             }
           } else {
             Log.e(TAG, "No frame received !");
+          }
+          //set new parameters
+          if (loadAlpha) {
+            textureManager.setAlpha(alpha);
+            loadAlpha = false;
+          }
+
+          if (loadScale) {
+            textureManager.setScale(scaleX, scaleY);
+            loadScale = false;
+          }
+
+          if (loadPosition) {
+            textureManager.setPosition(positionX, positionY);
+            loadPosition = false;
+          }
+
+          if (loadPositionTo) {
+            textureManager.setPosition(positionTo);
+            loadPositionTo = false;
           }
         }
       }

@@ -18,9 +18,6 @@ import com.pedro.rtplibrary.rtsp.RtspCamera2;
 import com.pedro.rtplibrary.view.AutoFitTextureView;
 import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 
-/**
- * Unstable activity. See builder header.
- */
 @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
 public class TextureModeRtspActivity extends AppCompatActivity
     implements ConnectCheckerRtsp, View.OnClickListener {
@@ -35,10 +32,10 @@ public class TextureModeRtspActivity extends AppCompatActivity
     super.onCreate(savedInstanceState);
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     setContentView(R.layout.activity_texture_mode);
-    textureView = (AutoFitTextureView) findViewById(R.id.textureView);
-    button = (Button) findViewById(R.id.b_start_stop);
+    textureView = findViewById(R.id.textureView);
+    button = findViewById(R.id.b_start_stop);
     button.setOnClickListener(this);
-    etUrl = (EditText) findViewById(R.id.et_rtp_url);
+    etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtsp);
     rtspCamera2 = new RtspCamera2(textureView, this);
     textureView.setSurfaceTextureListener(surfaceTextureListener);
@@ -62,12 +59,12 @@ public class TextureModeRtspActivity extends AppCompatActivity
   }
 
   @Override
-  public void onConnectionFailedRtsp() {
+  public void onConnectionFailedRtsp(final String reason) {
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
-        Toast.makeText(TextureModeRtspActivity.this, "Connection failed", Toast.LENGTH_SHORT)
-            .show();
+        Toast.makeText(TextureModeRtspActivity.this, "Connection failed. " + reason,
+            Toast.LENGTH_SHORT).show();
         rtspCamera2.stopStream();
         button.setText(R.string.start_button);
       }

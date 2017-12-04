@@ -2,6 +2,7 @@ package com.pedro.rtsp.rtp.sockets;
 
 import android.util.Log;
 import com.pedro.rtsp.rtcp.SenderReportUdp;
+import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
@@ -17,19 +18,21 @@ public class RtpSocketUdp extends BaseRtpSocket implements Runnable {
 
   private SenderReportUdp senderReportUdp;
   private MulticastSocket mSocket;
-  private DatagramPacket[] mPackets;
-  private int mPort = -1;
+  private DatagramPacket[] packets;
+  private int port = -1;
+  private ConnectCheckerRtsp connectCheckerRtsp;
 
   /**
    * This RTP socket implements a buffering mechanism relying on a FIFO of buffers and a Thread.
    */
-  public RtpSocketUdp() {
+  public RtpSocketUdp(ConnectCheckerRtsp connectCheckerRtsp) {
     super();
-    senderReportUdp = new SenderReportUdp();
+    this.connectCheckerRtsp = connectCheckerRtsp;
+    senderReportUdp = new SenderReportUdp(connectCheckerRtsp);
     senderReportUdp.reset();
-    mPackets = new DatagramPacket[mBufferCount];
-    for (int i = 0; i < mBufferCount; i++) {
-      mPackets[i] = new DatagramPacket(mBuffers[i], 1);
+    packets = new DatagramPacket[bufferCount];
+    for (int i = 0; i < bufferCount; i++) {
+      packets[i] = new DatagramPacket(buffers[i], 1);
     }
     try {
       mSocket = new MulticastSocket();
@@ -46,9 +49,7 @@ public class RtpSocketUdp extends BaseRtpSocket implements Runnable {
 
   @Override
   public void setSSRC(int ssrc) {
-    for (int i = 0; i < mBufferCount; i++) {
-      setLong(mBuffers[i], ssrc, 8, 12);
-    }
+    setLongSSRC(ssrc);
     senderReportUdp.setSSRC(ssrc);
   }
 
@@ -61,10 +62,10 @@ public class RtpSocketUdp extends BaseRtpSocket implements Runnable {
   public void setDestination(String dest, int dport, int rtcpPort) {
     try {
       if (dport != 0 && rtcpPort != 0) {
-        mPort = dport;
-        for (int i = 0; i < mBufferCount; i++) {
-          mPackets[i].setPort(dport);
-          mPackets[i].setAddress(InetAddress.getByName(dest));
+        port = dport;
+        for (int i = 0; i < bufferCount; i++) {
+          packets[i].setPort(dport);
+          packets[i].setAddress(InetAddress.getByName(dest));
         }
         senderReportUdp.setDestination(InetAddress.getByName(dest), rtcpPort);
       }
@@ -73,41 +74,31 @@ public class RtpSocketUdp extends BaseRtpSocket implements Runnable {
     }
   }
 
-  /** Sends the RTP packet over the network. */
   @Override
-  public void commitBuffer(int length) throws IOException {
-    updateSequence();
-    mPackets[mBufferIn].setLength(length);
-    if (++mBufferIn >= mBufferCount) mBufferIn = 0;
-    mBufferCommitted.release();
-    if (mThread == null) {
-      mThread = new Thread(this);
-      mThread.start();
-    }
+  public void implementCommitBuffer(int length) {
+    packets[bufferIn].setLength(length);
   }
 
   /** The Thread sends the packets in the FIFO one by one at a constant rate. */
   @Override
   public void run() {
     try {
-      while (mBufferCommitted.tryAcquire(4, TimeUnit.SECONDS)) {
-        senderReportUdp.update(mPackets[mBufferOut].getLength(),
-            (mTimestamps[mBufferOut] / 100L) * (mClock / 1000L) / 10000L, mPort);
-        if (mCount++ > 30) {
-          Log.i(TAG, "send packet, "
-              + mPackets[mBufferOut].getLength()
-              + " Size, "
-              + mPackets[mBufferOut].getPort()
-              + " Port");
-          mSocket.send(mPackets[mBufferOut]);
-        }
-        if (++mBufferOut >= mBufferCount) mBufferOut = 0;
-        mBufferRequested.release();
+      while (bufferCommitted.tryAcquire(4, TimeUnit.SECONDS)) {
+        senderReportUdp.update(packets[bufferOut].getLength(), timestamps[bufferOut], port);
+        mSocket.send(packets[bufferOut]);
+        Log.i(TAG, "send packet, "
+            + packets[bufferOut].getLength()
+            + " Size, "
+            + packets[bufferOut].getPort()
+            + " Port");
+        if (++bufferOut >= bufferCount) bufferOut = 0;
+        bufferRequested.release();
       }
-    } catch (Exception e) {
-      e.printStackTrace();
+    } catch (IOException | InterruptedException e) {
+      Log.e(TAG, "UDP send error: ", e);
+      connectCheckerRtsp.onConnectionFailedRtsp("Error send packet, " + e.getMessage());
     }
-    mThread = null;
+    thread = null;
     resetFifo();
     senderReportUdp.reset();
   }

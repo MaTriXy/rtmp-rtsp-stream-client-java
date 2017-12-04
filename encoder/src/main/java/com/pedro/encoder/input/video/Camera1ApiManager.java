@@ -6,6 +6,9 @@ import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.media.CamcorderProfile;
 import android.opengl.GLES20;
+import android.os.Build;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.util.Log;
 import android.view.SurfaceView;
 import android.view.TextureView;
@@ -33,14 +36,14 @@ import javax.microedition.khronos.egl.EGLSurface;
 
 public class Camera1ApiManager implements Camera.PreviewCallback {
 
-  private String TAG = "Camera1ApiManagerGl";
+  private String TAG = "Camera1ApiManager";
   private Camera camera = null;
   private SurfaceView surfaceView;
   private TextureView textureView;
   private SurfaceTexture surfaceTexture;
   private GetCameraData getCameraData;
   private boolean running = false;
-  private boolean prepared = false;
+  private volatile boolean prepared = false;
   private boolean lanternEnable = false;
   private int cameraSelect;
   private boolean isFrontCamera = false;
@@ -51,7 +54,10 @@ public class Camera1ApiManager implements Camera.PreviewCallback {
   private int fps = 30;
   private int orientation = 0;
   private int imageFormat = ImageFormat.NV21;
-  private FpsController fpsController;
+  private HandlerThread handlerThread;
+  private Handler thread;
+  private byte[] yuvBuffer;
+  private final Object syncStop = new Object();
 
   public Camera1ApiManager(SurfaceView surfaceView, GetCameraData getCameraData) {
     this.surfaceView = surfaceView;
@@ -88,64 +94,95 @@ public class Camera1ApiManager implements Camera.PreviewCallback {
   }
 
   public void prepareCamera() {
-    prepareCamera(width, height, fps, imageFormat);
+    prepareCamera(640, 480, fps, imageFormat);
   }
 
-  public void start(@Camera1Facing int cameraFacing) {
+  public void start(@Camera1Facing int cameraFacing, int width, int height) {
+    this.width = width;
+    this.height = height;
     cameraSelect = (cameraFacing == Camera.CameraInfo.CAMERA_FACING_BACK) ? selectCameraBack()
         : selectCameraFront();
     start();
   }
 
+  public void start(@Camera1Facing int cameraFacing) {
+    start(cameraFacing, width, height);
+  }
+
   public void start() {
-    if (camera == null && prepared) {
-      try {
-        camera = Camera.open(cameraSelect);
-        if (!checkCanOpen()) {
-          throw new CameraOpenException("This camera resolution cant be opened");
-        }
-        Camera.CameraInfo info = new Camera.CameraInfo();
-        Camera.getCameraInfo(cameraSelect, info);
-        isFrontCamera = info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT;
-
-        Camera.Parameters parameters = camera.getParameters();
-        parameters.setPreviewSize(width, height);
-        parameters.setPreviewFormat(imageFormat);
-        int[] range = adaptFpsRange(fps, parameters.getSupportedPreviewFpsRange());
-        parameters.setPreviewFpsRange(range[0], range[1]);
-
-        List<String> supportedFocusModes = parameters.getSupportedFocusModes();
-        if (supportedFocusModes != null && !supportedFocusModes.isEmpty()) {
-          if (supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
-            parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
-          } else if (supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
-            parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
-            camera.autoFocus(null);
-          } else {
-            parameters.setFocusMode(supportedFocusModes.get(0));
-          }
-        }
-
-        camera.setParameters(parameters);
-        camera.setDisplayOrientation(orientation);
-        if (surfaceView != null) {
-          camera.setPreviewDisplay(surfaceView.getHolder());
-          camera.setPreviewCallback(this);
-        } else if (textureView != null) {
-          camera.setPreviewTexture(textureView.getSurfaceTexture());
-          camera.setPreviewCallback(this);
+    handlerThread = new HandlerThread("cameraThread");
+    handlerThread.start();
+    thread = new Handler(handlerThread.getLooper());
+    thread.post(new Runnable() {
+      @Override
+      public void run() {
+        yuvBuffer = new byte[width * height * 3 / 2];
+        YUVUtil.preAllocateRotateBuffers(yuvBuffer.length);
+        if (imageFormat == ImageFormat.NV21) {
+          YUVUtil.preAllocateNv21Buffers(yuvBuffer.length);
         } else {
-          camera.setPreviewTexture(surfaceTexture);
+          YUVUtil.preAllocateYv12Buffers(yuvBuffer.length);
         }
-        camera.startPreview();
-        running = true;
-        fpsController = new FpsController(fps, camera);
-        Log.i(TAG, width + "X" + height);
-      } catch (IOException e) {
-        e.printStackTrace();
+        if (camera == null && prepared) {
+          try {
+            camera = Camera.open(cameraSelect);
+            if (!checkCanOpen()) {
+              throw new CameraOpenException("This camera resolution cant be opened");
+            }
+            Camera.CameraInfo info = new Camera.CameraInfo();
+            Camera.getCameraInfo(cameraSelect, info);
+            isFrontCamera = info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT;
+
+            Camera.Parameters parameters = camera.getParameters();
+            parameters.setPreviewSize(width, height);
+            parameters.setPreviewFormat(imageFormat);
+            int[] range = adaptFpsRange(fps, parameters.getSupportedPreviewFpsRange());
+            parameters.setPreviewFpsRange(range[0], range[1]);
+
+            List<String> supportedFocusModes = parameters.getSupportedFocusModes();
+            if (supportedFocusModes != null && !supportedFocusModes.isEmpty()) {
+              if (supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
+                parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+              } else if (supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
+                parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+                camera.autoFocus(null);
+              } else {
+                parameters.setFocusMode(supportedFocusModes.get(0));
+              }
+            }
+
+            camera.setParameters(parameters);
+            camera.setDisplayOrientation(orientation);
+            if (surfaceView != null) {
+              camera.setPreviewDisplay(surfaceView.getHolder());
+              camera.addCallbackBuffer(yuvBuffer);
+              camera.setPreviewCallbackWithBuffer(Camera1ApiManager.this);
+            } else if (textureView != null) {
+              camera.setPreviewTexture(textureView.getSurfaceTexture());
+              camera.addCallbackBuffer(yuvBuffer);
+              camera.setPreviewCallbackWithBuffer(Camera1ApiManager.this);
+            } else {
+              camera.setPreviewTexture(surfaceTexture);
+            }
+            camera.startPreview();
+            running = true;
+            Log.i(TAG, width + "X" + height);
+          } catch (IOException e) {
+            e.printStackTrace();
+          }
+        } else {
+          Log.e(TAG, "Camera1ApiManager need be prepared, Camera1ApiManager not enabled");
+        }
       }
-    } else {
-      Log.e(TAG, "Camera1ApiManager need be prepared, Camera1ApiManager not enabled");
+    });
+  }
+
+  public void setPreviewOrientation(final int orientation) {
+    this.orientation = orientation;
+    if (camera != null && running) {
+      camera.stopPreview();
+      camera.setDisplayOrientation(orientation);
+      camera.startPreview();
     }
   }
 
@@ -179,7 +216,15 @@ public class Camera1ApiManager implements Camera.PreviewCallback {
 
   public void stop() {
     if (camera != null) {
-      camera.setPreviewCallback(null);
+      if (handlerThread != null) {
+        handlerThread.quit();
+        handlerThread = null;
+      }
+      if (thread != null) {
+        thread.removeCallbacksAndMessages(null);
+        thread = null;
+      }
+      camera.setPreviewCallbackWithBuffer(null);
       camera.stopPreview();
       camera.release();
       camera = null;
@@ -256,14 +301,9 @@ public class Camera1ApiManager implements Camera.PreviewCallback {
 
   @Override
   public void onPreviewFrame(byte[] data, Camera camera) {
-    if (fpsController.fpsIsValid()) {
-      if (imageFormat == ImageFormat.YV12) {
-        getCameraData.inputYv12Data(data);
-      } else if (imageFormat == ImageFormat.NV21) {
-        if (isFrontCamera) data = YUVUtil.rotateNV21(data, width, height, 180);
-        getCameraData.inputNv21Data(data);
-      }
-    }
+    if (isFrontCamera) data = YUVUtil.rotateNV21(data, width, height, 180);
+    getCameraData.inputYUVData(data);
+    camera.addCallbackBuffer(yuvBuffer);
   }
 
   /**

@@ -1,6 +1,8 @@
 package com.pedro.rtplibrary.base;
 
+import android.content.Context;
 import android.graphics.ImageFormat;
+import android.graphics.PointF;
 import android.hardware.Camera;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
@@ -22,6 +24,7 @@ import com.pedro.encoder.input.video.GetCameraData;
 import com.pedro.encoder.utils.gl.TextStreamObject;
 import com.pedro.encoder.utils.gl.GifStreamObject;
 import com.pedro.encoder.utils.gl.ImageStreamObject;
+import com.pedro.encoder.utils.gl.TranslateTo;
 import com.pedro.encoder.video.FormatVideoEncoder;
 import com.pedro.encoder.video.GetH264Data;
 import com.pedro.encoder.video.VideoEncoder;
@@ -40,6 +43,7 @@ public abstract class Camera1Base
 
   private static final String TAG = "Camera1Base";
 
+  private Context context;
   protected Camera1ApiManager cameraManager;
   protected VideoEncoder videoEncoder;
   protected MicrophoneManager microphoneManager;
@@ -75,6 +79,7 @@ public abstract class Camera1Base
 
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
   public Camera1Base(OpenGlView openGlView) {
+    context = openGlView.getContext();
     this.openGlView = openGlView;
     videoEncoder = new VideoEncoder(this);
     microphoneManager = new MicrophoneManager(this);
@@ -120,12 +125,19 @@ public abstract class Camera1Base
       cameraManager.prepareCamera();
       return videoEncoder.prepareVideoEncoder();
     } else {
-      return videoEncoder.prepareVideoEncoder(640, 480, 30, 1200 * 1024, 0, true,
+      int orientation = 0;
+      if (context.getResources().getConfiguration().orientation == 1) {
+        orientation = 90;
+      }
+      return videoEncoder.prepareVideoEncoder(640, 480, 30, 1200 * 1024, orientation, false,
           FormatVideoEncoder.SURFACE);
     }
   }
 
-  public abstract boolean prepareAudio();
+  public boolean prepareAudio() {
+    microphoneManager.createMicrophone();
+    return audioEncoder.prepareAudioEncoder();
+  }
 
   /*Need be called while stream*/
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
@@ -158,7 +170,7 @@ public abstract class Camera1Base
     audioTrack = -1;
   }
 
-  public void startPreview(@Camera1Facing int cameraFacing) {
+  public void startPreview(@Camera1Facing int cameraFacing, int width, int height) {
     if (!isStreaming() && !onPreview) {
       if (openGlView != null && Build.VERSION.SDK_INT >= 18) {
         openGlView.startGLThread();
@@ -166,11 +178,23 @@ public abstract class Camera1Base
             new Camera1ApiManager(openGlView.getSurfaceTexture(), openGlView.getContext());
       }
       cameraManager.prepareCamera();
-      cameraManager.start(cameraFacing);
+      if (width == 0 || height == 0) {
+        cameraManager.start(cameraFacing);
+      } else {
+        cameraManager.start(cameraFacing, width, height);
+      }
       onPreview = true;
     } else {
       Log.e(TAG, "Streaming or preview started, ignored");
     }
+  }
+
+  public void startPreview(@Camera1Facing int cameraFacing) {
+    startPreview(cameraFacing, 0, 0);
+  }
+
+  public void startPreview(int width, int height) {
+    startPreview(Camera.CameraInfo.CAMERA_FACING_BACK, width, height);
   }
 
   public void startPreview() {
@@ -189,11 +213,19 @@ public abstract class Camera1Base
     }
   }
 
+  public void setPreviewOrientation(int orientation) {
+    cameraManager.setPreviewOrientation(orientation);
+  }
+
   protected abstract void startStreamRtp(String url);
 
   public void startStream(String url) {
     if (openGlView != null && Build.VERSION.SDK_INT >= 18) {
-      openGlView.setEncoderSize(videoEncoder.getWidth(), videoEncoder.getHeight());
+      if (videoEncoder.getRotation() == 90 || videoEncoder.getRotation() == 270) {
+        openGlView.setEncoderSize(videoEncoder.getHeight(), videoEncoder.getWidth());
+      } else {
+        openGlView.setEncoderSize(videoEncoder.getWidth(), videoEncoder.getHeight());
+      }
       openGlView.startGLThread();
       openGlView.addMediaCodecSurface(videoEncoder.getInputSurface());
       cameraManager =
@@ -233,14 +265,6 @@ public abstract class Camera1Base
     return resolutions;
   }
 
-  public int getStreamWidth() {
-    return videoEncoder.getWidth();
-  }
-
-  public int getStreamHeight() {
-    return videoEncoder.getHeight();
-  }
-
   public void disableAudio() {
     microphoneManager.mute();
   }
@@ -274,7 +298,7 @@ public abstract class Camera1Base
   }
 
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
-  public void setGif(GifStreamObject gifStreamObject) throws RuntimeException {
+  public void setGifStreamObject(GifStreamObject gifStreamObject) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setGif(gifStreamObject);
     } else {
@@ -283,16 +307,16 @@ public abstract class Camera1Base
   }
 
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
-  public void setImage(ImageStreamObject imageStreamObject) throws RuntimeException {
+  public void setImageStreamObject(ImageStreamObject imageStreamObject) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setImage(imageStreamObject);
     } else {
-      throw new RuntimeException("You must use OpenGlView in the constructor to set a image");
+      throw new RuntimeException("You must use OpenGlView in the constructor to set an image");
     }
   }
 
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
-  public void setText(TextStreamObject textStreamObject) throws RuntimeException {
+  public void setTextStreamObject(TextStreamObject textStreamObject) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setText(textStreamObject);
     } else {
@@ -301,18 +325,92 @@ public abstract class Camera1Base
   }
 
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
-  private void stopOpenGlRender() {
-    openGlView.stopGlThread();
-    cameraManager.stop();
+  public void clearStreamObject() throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.clear();
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set a text");
+    }
   }
 
+  /**
+   * @param alpha of the stream object on fly, 1.0f totally opaque and 0.0f totally transparent
+   * @throws RuntimeException
+   */
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
-  private void startOpenGlRender() {
-    openGlView.startGLThread();
-    cameraManager = new Camera1ApiManager(openGlView.getSurfaceTexture(), openGlView.getContext());
-    cameraManager.prepareCamera(videoEncoder.getWidth(), videoEncoder.getHeight(),
-        videoEncoder.getFps(), ImageFormat.NV21);
-    cameraManager.start();
+  public void setAlphaStreamObject(float alpha) throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.setStreamObjectAlpha(alpha);
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set an alpha");
+    }
+  }
+
+  /**
+   * @param sizeX of the stream object in percent: 100 full screen to 1
+   * @param sizeY of the stream object in percent: 100 full screen to 1
+   * @throws RuntimeException
+   */
+  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+  public void setSizeStreamObject(float sizeX, float sizeY) throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.setStreamObjectSize(sizeX, sizeY);
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set a size");
+    }
+  }
+
+  /**
+   * @param x of the stream object in percent: 100 full screen left to 0 full right
+   * @param y of the stream object in percent: 100 full screen top to 0 full bottom
+   * @throws RuntimeException
+   */
+  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+  public void setPositionStreamObject(float x, float y) throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.setStreamObjectPosition(x, y);
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set a position");
+    }
+  }
+
+  /**
+   * @param translateTo pre determinate positions
+   * @throws RuntimeException
+   */
+  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+  public void setPositionStreamObject(TranslateTo translateTo) throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.setStreamObjectPosition(translateTo);
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set a position");
+    }
+  }
+
+  /**
+   * @return scale in percent, 0 is stream not started
+   * @throws RuntimeException
+   */
+  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+  public PointF getSizeStreamObject() throws RuntimeException {
+    if (openGlView != null) {
+      return openGlView.getScale();
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to get position");
+    }
+  }
+
+  /**
+   * @return position in percent, 0 is stream not started
+   * @throws RuntimeException
+   */
+  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+  public PointF getPositionStreamObject() throws RuntimeException {
+    if (openGlView != null) {
+      return openGlView.getPosition();
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to get scale");
+    }
   }
 
   /** need min API 19 */
@@ -357,6 +455,9 @@ public abstract class Camera1Base
 
   protected abstract void getH264DataRtp(ByteBuffer h264Buffer, MediaCodec.BufferInfo info);
 
+  private int fps = 0;
+  private long time = 0;
+
   @Override
   public void getH264Data(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2
@@ -367,22 +468,23 @@ public abstract class Camera1Base
         mediaMuxer.writeSampleData(videoTrack, h264Buffer, info);
       }
     }
+    fps++;
+    if (System.currentTimeMillis() - 1000 > time) {
+      time = System.currentTimeMillis();
+      Log.e("Pedro", "FPS: " + fps);
+      fps = 0;
+    }
     getH264DataRtp(h264Buffer, info);
   }
 
   @Override
-  public void inputPcmData(byte[] buffer, int size) {
-    audioEncoder.inputPcmData(buffer, size);
+  public void inputPCMData(byte[] buffer, int size) {
+    audioEncoder.inputPCMData(buffer, size);
   }
 
   @Override
-  public void inputYv12Data(byte[] buffer) {
-    videoEncoder.inputYv12Data(buffer);
-  }
-
-  @Override
-  public void inputNv21Data(byte[] buffer) {
-    videoEncoder.inputNv21Data(buffer);
+  public void inputYUVData(byte[] buffer) {
+    videoEncoder.inputYUVData(buffer);
   }
 
   @Override

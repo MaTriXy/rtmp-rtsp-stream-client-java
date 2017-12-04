@@ -11,6 +11,7 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.pedro.rtmpstreamer.utils.PathUtils;
 import com.pedro.rtplibrary.rtsp.RtspFromFile;
 import com.pedro.encoder.input.decoder.VideoDecoderInterface;
 import com.pedro.rtmpstreamer.R;
@@ -32,13 +33,13 @@ public class RtspFromFileActivity extends AppCompatActivity
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_from_file);
-    button = (Button) findViewById(R.id.b_start_stop);
-    bSelectFile = (Button) findViewById(R.id.b_select_file);
+    button = findViewById(R.id.b_start_stop);
+    bSelectFile = findViewById(R.id.b_select_file);
     button.setOnClickListener(this);
     bSelectFile.setOnClickListener(this);
-    etUrl = (EditText) findViewById(R.id.et_rtp_url);
+    etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtsp);
-    tvFile = (TextView) findViewById(R.id.tv_file);
+    tvFile = findViewById(R.id.tv_file);
     rtspFromFile = new RtspFromFile(this, this);
   }
 
@@ -53,11 +54,12 @@ public class RtspFromFileActivity extends AppCompatActivity
   }
 
   @Override
-  public void onConnectionFailedRtsp() {
+  public void onConnectionFailedRtsp(final String reason) {
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
-        Toast.makeText(RtspFromFileActivity.this, "Connection failed", Toast.LENGTH_SHORT).show();
+        Toast.makeText(RtspFromFileActivity.this, "Connection failed. " + reason,
+            Toast.LENGTH_SHORT).show();
         rtspFromFile.stopStream();
         button.setText(R.string.start_button);
       }

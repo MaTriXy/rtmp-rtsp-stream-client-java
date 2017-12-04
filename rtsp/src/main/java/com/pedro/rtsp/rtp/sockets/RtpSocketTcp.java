@@ -2,6 +2,7 @@ package com.pedro.rtsp.rtp.sockets;
 
 import android.util.Log;
 import com.pedro.rtsp.rtcp.SenderReportTcp;
+import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.concurrent.TimeUnit;
@@ -12,78 +13,69 @@ import java.util.concurrent.TimeUnit;
 public class RtpSocketTcp extends BaseRtpSocket implements Runnable {
 
   private SenderReportTcp senderReportTcp;
-  private byte mTcpHeader[];
+  private byte tcpHeader[];
   private int[] lengths;
-  private OutputStream mOutputStream = null;
+  private OutputStream outputStream = null;
+  private ConnectCheckerRtsp connectCheckerRtsp;
 
-  public RtpSocketTcp() {
+  public RtpSocketTcp(ConnectCheckerRtsp connectCheckerRtsp) {
     super();
-    lengths = new int[mBufferCount];
-    senderReportTcp = new SenderReportTcp();
+    this.connectCheckerRtsp = connectCheckerRtsp;
+    lengths = new int[bufferCount];
+    senderReportTcp = new SenderReportTcp(connectCheckerRtsp);
     senderReportTcp.reset();
-    mTcpHeader = new byte[] { '$', 0, 0, 0 };
+    tcpHeader = new byte[] { '$', 0, 0, 0 };
   }
 
   @Override
   public void setSSRC(int ssrc) {
-    for (int i = 0; i < mBufferCount; i++) {
-      setLong(mBuffers[i], ssrc, 8, 12);
-    }
+    setLongSSRC(ssrc);
     senderReportTcp.setSSRC(ssrc);
   }
 
   public void setOutputStream(OutputStream outputStream, byte channelIdentifier) {
     if (outputStream != null) {
-      mOutputStream = outputStream;
-      mTcpHeader[1] = channelIdentifier;
+      this.outputStream = outputStream;
+      tcpHeader[1] = channelIdentifier;
       senderReportTcp.setOutputStream(outputStream, (byte) (channelIdentifier + 1));
     }
   }
 
   /** Sends the RTP packet over the network. */
   @Override
-  public void commitBuffer(int length) throws IOException {
-    updateSequence();
-    lengths[mBufferIn] = length;
-    if (++mBufferIn >= mBufferCount) mBufferIn = 0;
-    mBufferCommitted.release();
-    if (mThread == null) {
-      mThread = new Thread(this);
-      mThread.start();
-    }
+  public void implementCommitBuffer(int length) {
+    lengths[bufferIn] = length;
   }
 
   /** The Thread sends the packets in the FIFO one by one at a constant rate. */
   @Override
   public void run() {
     try {
-      while (mBufferCommitted.tryAcquire(4, TimeUnit.SECONDS)) {
-        senderReportTcp.update(lengths[mBufferOut],
-            (mTimestamps[mBufferOut] / 100L) * (mClock / 1000L) / 10000L);
-        if (mCount++ > 30) {
-          Log.i(TAG, "send packet, " + lengths[mBufferOut] + " Size");
-          sendTCP();
-        }
-        if (++mBufferOut >= mBufferCount) mBufferOut = 0;
-        mBufferRequested.release();
+      while (bufferCommitted.tryAcquire(4, TimeUnit.SECONDS)) {
+        senderReportTcp.update(lengths[bufferOut], timestamps[bufferOut]);
+        sendTCP();
+        if (++bufferOut >= bufferCount) bufferOut = 0;
+        bufferRequested.release();
       }
-    } catch (Exception e) {
-      Log.e(TAG, "tcp send error: ", e);
+    } catch (IOException | InterruptedException e) {
+      Log.e(TAG, "TCP send error: ", e);
+      connectCheckerRtsp.onConnectionFailedRtsp("Error send packet, " + e.getMessage());
     }
-    mThread = null;
+
+    thread = null;
     resetFifo();
     senderReportTcp.reset();
   }
 
-  private void sendTCP() throws Exception {
-    synchronized (mOutputStream) {
-      int len = lengths[mBufferOut];
-      mTcpHeader[2] = (byte) (len >> 8);
-      mTcpHeader[3] = (byte) (len & 0xFF);
-      mOutputStream.write(mTcpHeader);
-      mOutputStream.write(mBuffers[mBufferOut], 0, len);
-      mOutputStream.flush();
-      Log.d(TAG, "send " + len);
+  private void sendTCP() throws IOException {
+    synchronized (outputStream) {
+      int len = lengths[bufferOut];
+      tcpHeader[2] = (byte) (len >> 8);
+      tcpHeader[3] = (byte) (len & 0xFF);
+      outputStream.write(tcpHeader);
+      outputStream.write(buffers[bufferOut], 0, len);
+      outputStream.flush();
+      Log.i(TAG, "send packet, " + len + " Size");
     }
   }
 }

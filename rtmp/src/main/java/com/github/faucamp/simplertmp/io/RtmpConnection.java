@@ -46,6 +46,8 @@ public class RtmpConnection implements RtmpPublisher {
   private static final String TAG = "RtmpConnection";
   private static final Pattern rtmpUrlPattern =
       Pattern.compile("^rtmp://([^/:]+)(:(\\d+))*/([^/]+)(/(.*))*$");
+  private static final Pattern rtmpsUrlPattern =
+      Pattern.compile("^rtmps://([^/:]+)(:(\\d+))*/([^/]+)(/(.*))*$");
 
   private int port;
   private String host;
@@ -72,8 +74,7 @@ public class RtmpConnection implements RtmpPublisher {
   private int videoHeight;
   private ConnectCheckerRtmp connectCheckerRtmp;
   //for secure transport
-  private InputStream inputStreamJks = null;
-  private String passPhraseJks = null;
+  private boolean tlsEnabled;
   //for auth
   private String user = null;
   private String password = null;
@@ -84,11 +85,6 @@ public class RtmpConnection implements RtmpPublisher {
 
   public RtmpConnection(ConnectCheckerRtmp connectCheckerRtmp) {
     this.connectCheckerRtmp = connectCheckerRtmp;
-  }
-
-  public void setJksData(InputStream inputStreamJks, String passPhraseJks) {
-    this.inputStreamJks = inputStreamJks;
-    this.passPhraseJks = passPhraseJks;
   }
 
   private void handshake(InputStream in, OutputStream out) throws IOException {
@@ -104,19 +100,29 @@ public class RtmpConnection implements RtmpPublisher {
 
   @Override
   public boolean connect(String url) {
-    Matcher matcher = rtmpUrlPattern.matcher(url);
-    if (matcher.matches()) {
-      tcUrl = url.substring(0, url.lastIndexOf('/'));
-      swfUrl = "";
-      pageUrl = "";
-      host = matcher.group(1);
-      String portStr = matcher.group(3);
-      port = portStr != null ? Integer.parseInt(portStr) : 1935;
-      appName = matcher.group(4);
-      streamName = matcher.group(6);
+    Matcher rtmpMatcher = rtmpUrlPattern.matcher(url);
+    Matcher rtmpsMatcher = rtmpsUrlPattern.matcher(url);
+    Matcher matcher;
+    if (rtmpMatcher.matches()) {
+      matcher = rtmpMatcher;
+      tlsEnabled = false;
+    } else if (rtmpsMatcher.matches()) {
+      matcher = rtmpsMatcher;
+      tlsEnabled = true;
     } else {
+      connectCheckerRtmp.onConnectionFailedRtmp(
+          "Endpoint malformed, should be: rtmp://ip:port/appname/streamname");
       return false;
     }
+
+    tcUrl = url.substring(0, url.lastIndexOf('/'));
+    swfUrl = "";
+    pageUrl = "";
+    host = matcher.group(1);
+    String portStr = matcher.group(3);
+    port = portStr != null ? Integer.parseInt(portStr) : 1935;
+    appName = matcher.group(4);
+    streamName = matcher.group(6);
 
     // socket connection
     Log.d(TAG, "connect() called. Host: "
@@ -130,13 +136,12 @@ public class RtmpConnection implements RtmpPublisher {
     rtmpSessionInfo = new RtmpSessionInfo();
     rtmpDecoder = new RtmpDecoder(rtmpSessionInfo);
     try {
-      if (inputStreamJks == null | passPhraseJks == null) {
+      if (!tlsEnabled) {
         socket = new Socket();
         SocketAddress socketAddress = new InetSocketAddress(host, port);
         socket.connect(socketAddress, 3000);
       } else {
-        socket = CreateSSLSocket.createSSlSocket(
-            CreateSSLSocket.createKeyStore(inputStreamJks, passPhraseJks), host, port);
+        socket = CreateSSLSocket.createSSlSocket(host, port);
       }
       inputStream = new BufferedInputStream(socket.getInputStream());
       outputStream = new BufferedOutputStream(socket.getOutputStream());
@@ -144,7 +149,8 @@ public class RtmpConnection implements RtmpPublisher {
       handshake(inputStream, outputStream);
       Log.d(TAG, "connect(): handshake done");
     } catch (IOException e) {
-      e.printStackTrace();
+      Log.e(TAG, "Error", e);
+      connectCheckerRtmp.onConnectionFailedRtmp("Connect error, " + e.getMessage());
       return false;
     }
 
@@ -167,6 +173,7 @@ public class RtmpConnection implements RtmpPublisher {
 
   private boolean rtmpConnect() {
     if (connected) {
+      connectCheckerRtmp.onConnectionFailedRtmp("Already connected");
       return false;
     }
 
@@ -204,6 +211,7 @@ public class RtmpConnection implements RtmpPublisher {
     }
     if (!connected) {
       shutdown(true);
+      connectCheckerRtmp.onConnectionFailedRtmp("Fail to connect, time out");
     }
     return connected;
   }
@@ -272,6 +280,7 @@ public class RtmpConnection implements RtmpPublisher {
   @Override
   public boolean publish(String type) {
     if (type == null) {
+      connectCheckerRtmp.onConnectionFailedRtmp("Null publish type");
       return false;
     }
     publishType = type;
@@ -279,10 +288,9 @@ public class RtmpConnection implements RtmpPublisher {
   }
 
   private boolean createStream() {
-    if (!connected) {
-      return false;
-    }
-    if (currentStreamId != 0) {
+    if (!connected || currentStreamId != 0) {
+      connectCheckerRtmp.onConnectionFailedRtmp(
+          "Create stream failed, connected= " + connected + ", StreamId= " + currentStreamId);
       return false;
     }
 
@@ -318,23 +326,20 @@ public class RtmpConnection implements RtmpPublisher {
         // do nothing
       }
     }
-    if (publishPermitted) {
-    } else {
+    if (!publishPermitted) {
       shutdown(true);
+      connectCheckerRtmp.onConnectionFailedRtmp("Error configure stream, publish permitted failed");
     }
     return publishPermitted;
   }
 
   private void fmlePublish() {
-    if (!connected) {
-      return;
-    }
-    if (currentStreamId == 0) {
+    if (!connected || currentStreamId == 0) {
+      Log.e(TAG, "fmlePublish failed");
       return;
     }
 
     Log.d(TAG, "fmlePublish(): Sending publish command...");
-    // transactionId == 0
     Command publish = new Command("publish", 0);
     publish.getHeader().setChunkStreamId(ChunkStreamInfo.RTMP_CID_OVER_STREAM);
     publish.getHeader().setMessageStreamId(currentStreamId);
@@ -345,10 +350,8 @@ public class RtmpConnection implements RtmpPublisher {
   }
 
   private void onMetaData() {
-    if (!connected) {
-      return;
-    }
-    if (currentStreamId == 0) {
+    if (!connected || currentStreamId == 0) {
+      Log.e(TAG, "onMetaData failed");
       return;
     }
 
@@ -380,13 +383,8 @@ public class RtmpConnection implements RtmpPublisher {
   }
 
   private void closeStream() {
-    if (!connected) {
-      return;
-    }
-    if (currentStreamId == 0) {
-      return;
-    }
-    if (!publishPermitted) {
+    if (!connected || currentStreamId == 0 || !publishPermitted) {
+      Log.e(TAG, "closeStream failed");
       return;
     }
     Log.d(TAG, "closeStream(): setting current stream ID to 0");
@@ -404,8 +402,8 @@ public class RtmpConnection implements RtmpPublisher {
         socket.shutdownInput();
         // It will raise SocketException in sendRtmpPacket
         socket.shutdownOutput();
-      } catch (IOException ioe) {
-        ioe.printStackTrace();
+      } catch (IOException | UnsupportedOperationException e) {
+        e.printStackTrace();
       }
 
       // shutdown rxPacketHandler
@@ -456,16 +454,12 @@ public class RtmpConnection implements RtmpPublisher {
 
   @Override
   public void publishAudioData(byte[] data, int size, int dts) {
-    if (data == null || data.length == 0 || dts < 0) {
-      return;
-    }
-    if (!connected) {
-      return;
-    }
-    if (currentStreamId == 0) {
-      return;
-    }
-    if (!publishPermitted) {
+    if (data == null
+        || data.length == 0
+        || dts < 0
+        || !connected
+        || currentStreamId == 0
+        || !publishPermitted) {
       return;
     }
     Audio audio = new Audio();
@@ -477,16 +471,12 @@ public class RtmpConnection implements RtmpPublisher {
 
   @Override
   public void publishVideoData(byte[] data, int size, int dts) {
-    if (data == null || data.length == 0 || dts < 0) {
-      return;
-    }
-    if (!connected) {
-      return;
-    }
-    if (currentStreamId == 0) {
-      return;
-    }
-    if (!publishPermitted) {
+    if (data == null
+        || data.length == 0
+        || dts < 0
+        || !connected
+        || currentStreamId == 0
+        || !publishPermitted) {
       return;
     }
     Video video = new Video();
@@ -518,7 +508,7 @@ public class RtmpConnection implements RtmpPublisher {
       // socket exception only issue one time.
       if (!socketExceptionCause.contentEquals(se.getMessage())) {
         socketExceptionCause = se.getMessage();
-        connectCheckerRtmp.onConnectionFailedRtmp();
+        connectCheckerRtmp.onConnectionFailedRtmp("Error send packet: " + se.getMessage());
         Log.e(TAG, "Caught SocketException during write loop, shutting down: " + se.getMessage());
       }
     } catch (IOException ioe) {
@@ -589,7 +579,7 @@ public class RtmpConnection implements RtmpPublisher {
       } catch (EOFException eof) {
         Thread.currentThread().interrupt();
       } catch (IOException e) {
-        connectCheckerRtmp.onConnectionFailedRtmp();
+        connectCheckerRtmp.onConnectionFailedRtmp("Error reading packet: " + e.getMessage());
         Log.e(TAG, "Caught SocketException while reading/decoding packet, shutting down: "
             + e.getMessage());
       }
@@ -623,11 +613,10 @@ public class RtmpConnection implements RtmpPublisher {
             }
             rtmpSessionInfo = new RtmpSessionInfo();
             rtmpDecoder = new RtmpDecoder(rtmpSessionInfo);
-            if (inputStreamJks == null | passPhraseJks == null) {
+            if (!tlsEnabled) {
               socket = new Socket(host, port);
             } else {
-              socket = CreateSSLSocket.createSSlSocket(
-                  CreateSSLSocket.createKeyStore(inputStreamJks, passPhraseJks), host, port);
+              socket = CreateSSLSocket.createSSlSocket(host, port);
             }
             inputStream = new BufferedInputStream(socket.getInputStream());
             outputStream = new BufferedOutputStream(socket.getOutputStream());
@@ -723,11 +712,6 @@ public class RtmpConnection implements RtmpPublisher {
         break;
     }
   }
-
-  //@Override
-  //public AtomicInteger getVideoFrameCacheNumber() {
-  //  return videoFrameCacheNumber;
-  //}
 
   @Override
   public void setVideoResolution(int width, int height) {

@@ -29,12 +29,16 @@ import java.util.regex.Pattern;
 public class RtspClient {
 
   private final String TAG = "RtspClient";
+  private static final Pattern rtspUrlPattern =
+      Pattern.compile("^rtsp://([^/:]+)(:(\\d+))*/([^/]+)(/(.*))*$");
+  private static final Pattern rtspsUrlPattern =
+      Pattern.compile("^rtsps://([^/:]+)(:(\\d+))*/([^/]+)(/(.*))*$");
 
-  private final long mTimestamp;
+  private final long timestamp;
   private String host = "";
   private int port;
   private String path;
-  private int sampleRate = 16000;
+  private int sampleRate = 44100;
   private boolean isStereo = true;
 
   private final int trackVideo = 1;
@@ -63,8 +67,7 @@ public class RtspClient {
   private OutputStream outputStream;
   private volatile boolean streaming = false;
   //for secure transport
-  private InputStream inputStreamJks = null;
-  private String passPhraseJks = null;
+  private boolean tlsEnabled = false;
   //packets
   private H264Packet h264Packet;
   private AacPacket aacPacket;
@@ -72,7 +75,7 @@ public class RtspClient {
   public RtspClient(ConnectCheckerRtsp connectCheckerRtsp) {
     this.connectCheckerRtsp = connectCheckerRtsp;
     long uptime = System.currentTimeMillis();
-    mTimestamp = (uptime / 1000) << 32 & (((uptime - ((uptime / 1000) * 1000)) >> 32)
+    timestamp = (uptime / 1000) << 32 & (((uptime - ((uptime / 1000) * 1000)) >> 32)
         / 1000); // NTP timestamp
   }
 
@@ -85,26 +88,28 @@ public class RtspClient {
     this.password = password;
   }
 
-  public void setJksData(InputStream inputStreamJks, String passPhraseJks) {
-    this.inputStreamJks = inputStreamJks;
-    this.passPhraseJks = passPhraseJks;
-  }
-
   public boolean isStreaming() {
     return streaming;
   }
 
   public void setUrl(String url) {
-    Pattern rtspPattern = Pattern.compile("^rtsp://([^/:]+)(:(\\d+))*/([^/]+)(/(.*))*$");
-    Matcher matcher = rtspPattern.matcher(url);
-    if (matcher.find()) {
-      host = matcher.group(1);
-      port = Integer.parseInt((matcher.group(3) != null) ? matcher.group(3) : "1935");
-      path = "/" + matcher.group(4) + "/" + matcher.group(6);
+    Matcher rtspMatcher = rtspUrlPattern.matcher(url);
+    Matcher rtspsMatcher = rtspsUrlPattern.matcher(url);
+    Matcher matcher;
+    if (rtspMatcher.matches()) {
+      matcher = rtspMatcher;
+      tlsEnabled = false;
+    } else if (rtspsMatcher.matches()) {
+      matcher = rtspsMatcher;
+      tlsEnabled = true;
     } else {
       streaming = false;
-      connectCheckerRtsp.onConnectionFailedRtsp();
+      connectCheckerRtsp.onConnectionFailedRtsp("Endpoint malformed, should be: rtsp://ip:port/appname/streamname");
+      return;
     }
+    host = matcher.group(1);
+    port = Integer.parseInt((matcher.group(3) != null) ? matcher.group(3) : "1935");
+    path = "/" + matcher.group(4) + "/" + matcher.group(6);
   }
 
   public OutputStream getOutputStream() {
@@ -125,6 +130,10 @@ public class RtspClient {
 
   public String getPath() {
     return path;
+  }
+
+  public ConnectCheckerRtsp getConnectCheckerRtsp() {
+    return connectCheckerRtsp;
   }
 
   public void setSPSandPPS(ByteBuffer sps, ByteBuffer pps) {
@@ -154,13 +163,12 @@ public class RtspClient {
         @Override
         public void run() {
           try {
-            if (inputStreamJks == null | passPhraseJks == null) {
+            if (!tlsEnabled) {
               connectionSocket = new Socket();
               SocketAddress socketAddress = new InetSocketAddress(host, port);
               connectionSocket.connect(socketAddress, 3000);
             } else {
-              connectionSocket = CreateSSLSocket.createSSlSocket(
-                  CreateSSLSocket.createKeyStore(inputStreamJks, passPhraseJks), host, port);
+              connectionSocket = CreateSSLSocket.createSSlSocket(host, port);
             }
             reader = new BufferedReader(new InputStreamReader(connectionSocket.getInputStream()));
             outputStream = connectionSocket.getOutputStream();
@@ -171,7 +179,7 @@ public class RtspClient {
             String response = getResponse(false, false);
             int status = getResponseStatus(response);
             if (status == 403) {
-              connectCheckerRtsp.onConnectionFailedRtsp();
+              connectCheckerRtsp.onConnectionFailedRtsp("Error configure stream, access denied");
               Log.e(TAG, "Response 403, access denied");
               return;
             } else if (status == 401) {
@@ -185,14 +193,14 @@ public class RtspClient {
                 if (statusAuth == 401) {
                   connectCheckerRtsp.onAuthErrorRtsp();
                   return;
-                } else if (statusAuth == 200){
+                } else if (statusAuth == 200) {
                   connectCheckerRtsp.onAuthSuccessRtsp();
                 } else {
-                  connectCheckerRtsp.onConnectionFailedRtsp();
+                  connectCheckerRtsp.onConnectionFailedRtsp("Error configure stream, announce with auth failed");
                 }
               }
             } else if (status != 200) {
-              connectCheckerRtsp.onConnectionFailedRtsp();
+              connectCheckerRtsp.onConnectionFailedRtsp("Error configure stream, announce failed");
             }
             writer.write(sendSetup(trackAudio, protocol));
             writer.flush();
@@ -208,10 +216,9 @@ public class RtspClient {
             aacPacket.updateDestinationAudio();
             streaming = true;
             connectCheckerRtsp.onConnectionSuccessRtsp();
-            new Thread(connectionMonitor).start();
           } catch (IOException | NullPointerException e) {
-            e.printStackTrace();
-            connectCheckerRtsp.onConnectionFailedRtsp();
+            Log.e(TAG, "connection error", e);
+            connectCheckerRtsp.onConnectionFailedRtsp("Error configure stream, " + e.getMessage());
             streaming = false;
           }
         }
@@ -219,26 +226,6 @@ public class RtspClient {
       thread.start();
     }
   }
-
-  private Runnable connectionMonitor = new Runnable() {
-    @Override
-    public void run() {
-      if (streaming) {
-        try {
-          // We poll the RTSP server with OPTION requests
-          writer.write(sendOptions());
-          writer.flush();
-          getResponse(false, true);
-          Thread.sleep(6000);
-          new Thread(connectionMonitor).start();
-        } catch (IOException | InterruptedException e) {
-          e.printStackTrace();
-          connectCheckerRtsp.onConnectionFailedRtsp();
-          streaming = false;
-        }
-      }
-    }
-  };
 
   public void disconnect() {
     if (streaming) {
@@ -249,7 +236,7 @@ public class RtspClient {
             writer.write(sendTearDown());
             connectionSocket.close();
           } catch (IOException e) {
-            e.printStackTrace();
+            Log.e(TAG, "disconnect error", e);
           }
           connectCheckerRtsp.onDisconnectRtsp();
           streaming = false;
@@ -260,6 +247,9 @@ public class RtspClient {
         h264Packet.close();
         aacPacket.close();
       }
+      mCSeq = 0;
+      sps = null;
+      pps = null;
     }
   }
 
@@ -318,9 +308,9 @@ public class RtspClient {
         +
         // TODO: Add IPV6 support
         "o=- "
-        + mTimestamp
+        + timestamp
         + " "
-        + mTimestamp
+        + timestamp
         + " IN IP4 "
         + "127.0.0.1"
         + "\r\n"
@@ -330,8 +320,8 @@ public class RtspClient {
         + host
         + "\r\n"
         +
-        // thread=0 0 means the session is permanent (we don'thread know when it will stop)
-        "thread=0 0\r\n"
+        // means the session is permanent
+        "t=0 0\r\n"
         + "a=recvonly\r\n"
         + Body.createAudioBody(trackAudio, sampleRate, isStereo)
         + Body.createVideoBody(trackVideo, sSPS, sPPS);
@@ -341,7 +331,8 @@ public class RtspClient {
     String params =
         (protocol == Protocol.UDP) ? ("UDP;unicast;client_port=" + (5000 + 2 * track) + "-" + (5000
             + 2 * track
-            + 1) + ";mode=record") : ("TCP;interleaved=" + 2 * track + "-" + (2 * track + 1) + ";mode=record");
+            + 1) + ";mode=record")
+            : ("TCP;interleaved=" + 2 * track + "-" + (2 * track + 1) + ";mode=record");
     String setup = "SETUP rtsp://"
         + host
         + ":"
@@ -359,8 +350,8 @@ public class RtspClient {
   }
 
   private String sendOptions() {
-    String options = "OPTIONS rtsp://" + host + ":" + port + path + " RTSP/1.0\r\n" + addHeaders(
-        authorization);
+    String options =
+        "OPTIONS rtsp://" + host + ":" + port + path + " RTSP/1.0\r\n" + addHeaders(authorization);
     Log.i(TAG, options);
     return options;
   }
@@ -379,8 +370,8 @@ public class RtspClient {
   }
 
   private String sendTearDown() {
-    String teardown = "TEARDOWN rtsp://" + host + ":" + port + path + " RTSP/1.0\r\n" + addHeaders(
-        authorization);
+    String teardown =
+        "TEARDOWN rtsp://" + host + ":" + port + path + " RTSP/1.0\r\n" + addHeaders(authorization);
     Log.i(TAG, teardown);
     return teardown;
   }
@@ -429,12 +420,13 @@ public class RtspClient {
         //end of response
         if (line.length() < 3) break;
       }
-      if (checkStatus && getResponseStatus(response) != 200){
-        connectCheckerRtsp.onConnectionFailedRtsp();
+      if (checkStatus && getResponseStatus(response) != 200) {
+        connectCheckerRtsp.onConnectionFailedRtsp("Error configure stream, " + response);
       }
       Log.i(TAG, response);
       return response;
     } catch (IOException e) {
+      Log.e(TAG, "read error", e);
       return null;
     }
   }
@@ -493,8 +485,11 @@ public class RtspClient {
   private int getResponseStatus(String response) {
     Matcher matcher =
         Pattern.compile("RTSP/\\d.\\d (\\d+) (\\w+)", Pattern.CASE_INSENSITIVE).matcher(response);
-    if (matcher.find()) return Integer.parseInt(matcher.group(1));
-    else return -1;
+    if (matcher.find()) {
+      return Integer.parseInt(matcher.group(1));
+    } else {
+      return -1;
+    }
   }
 
   public int[] getAudioPorts() {

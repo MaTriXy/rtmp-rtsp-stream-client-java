@@ -1,6 +1,5 @@
 package com.pedro.rtmpstreamer.customexample;
 
-import android.hardware.Camera;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -57,6 +56,7 @@ public class RtspActivity extends AppCompatActivity
   private CheckBox cbEchoCanceler, cbNoiseSuppressor, cbHardwareRotation;
   private EditText etVideoBitrate, etFps, etAudioBitrate, etSampleRate, etWowzaUser,
       etWowzaPassword;
+  private String lastVideoBitrate;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -66,36 +66,47 @@ public class RtspActivity extends AppCompatActivity
     getSupportActionBar().setDisplayHomeAsUpEnabled(true);
     getSupportActionBar().setHomeButtonEnabled(true);
 
-    surfaceView = (SurfaceView) findViewById(R.id.surfaceView);
+    surfaceView = findViewById(R.id.surfaceView);
     surfaceView.getHolder().addCallback(this);
     rtspCamera1 = new RtspCamera1(surfaceView, this);
     prepareOptionsMenuViews();
 
-    etUrl = (EditText) findViewById(R.id.et_rtp_url);
+    etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtsp);
-    bStartStop = (Button) findViewById(R.id.b_start_stop);
+    bStartStop = findViewById(R.id.b_start_stop);
     bStartStop.setOnClickListener(this);
-    bRecord = (Button) findViewById(R.id.b_record);
+    bRecord = findViewById(R.id.b_record);
     bRecord.setOnClickListener(this);
-    Button switchCamera = (Button) findViewById(R.id.switch_camera);
+    Button switchCamera = findViewById(R.id.switch_camera);
     switchCamera.setOnClickListener(this);
   }
 
   private void prepareOptionsMenuViews() {
-    drawerLayout = (DrawerLayout) findViewById(R.id.activity_custom);
-    navigationView = (NavigationView) findViewById(R.id.nv_rtp);
+    drawerLayout = findViewById(R.id.activity_custom);
+    navigationView = findViewById(R.id.nv_rtp);
     navigationView.inflateMenu(R.menu.options_rtsp);
     actionBarDrawerToggle = new ActionBarDrawerToggle(this, drawerLayout, R.string.rtsp_streamer,
         R.string.rtsp_streamer) {
 
       public void onDrawerOpened(View drawerView) {
         actionBarDrawerToggle.syncState();
+        lastVideoBitrate = etVideoBitrate.getText().toString();
       }
 
       public void onDrawerClosed(View view) {
         actionBarDrawerToggle.syncState();
-        rtspCamera1.setVideoBitrateOnFly(
-            Integer.parseInt(etVideoBitrate.getText().toString()) * 1024);
+        if (!lastVideoBitrate.equals(etVideoBitrate.getText().toString())
+            && rtspCamera1.isStreaming()) {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            int bitrate = Integer.parseInt(etVideoBitrate.getText().toString()) * 1024;
+            rtspCamera1.setVideoBitrateOnFly(bitrate);
+            Toast.makeText(RtspActivity.this, "New bitrate: " + bitrate, Toast.LENGTH_SHORT).
+                show();
+          } else {
+            Toast.makeText(RtspActivity.this, "Bitrate on fly ignored, Required min API 19",
+                Toast.LENGTH_SHORT).show();
+          }
+        }
       }
     };
     drawerLayout.addDrawerListener(actionBarDrawerToggle);
@@ -110,7 +121,7 @@ public class RtspActivity extends AppCompatActivity
     rbTcp = (RadioButton) navigationView.getMenu().findItem(R.id.rb_tcp).getActionView();
     rbUdp = (RadioButton) navigationView.getMenu().findItem(R.id.rb_udp).getActionView();
     rgChannel = (RadioGroup) navigationView.getMenu().findItem(R.id.channel).getActionView();
-    rbUdp.setChecked(true);
+    rbTcp.setChecked(true);
     rbTcp.setOnClickListener(this);
     rbUdp.setOnClickListener(this);
     //spinners
@@ -138,7 +149,7 @@ public class RtspActivity extends AppCompatActivity
     etVideoBitrate.setText("2500");
     etFps.setText("30");
     etAudioBitrate.setText("128");
-    etSampleRate.setText("16000");
+    etSampleRate.setText("44100");
     etWowzaUser = (EditText) navigationView.getMenu().findItem(R.id.et_wowza_user).getActionView();
     etWowzaPassword =
         (EditText) navigationView.getMenu().findItem(R.id.et_wowza_password).getActionView();
@@ -335,11 +346,12 @@ public class RtspActivity extends AppCompatActivity
   }
 
   @Override
-  public void onConnectionFailedRtsp() {
+  public void onConnectionFailedRtsp(final String reason) {
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
-        Toast.makeText(RtspActivity.this, "Connection failed", Toast.LENGTH_SHORT).show();
+        Toast.makeText(RtspActivity.this, "Connection failed. " + reason, Toast.LENGTH_SHORT)
+            .show();
         rtspCamera1.stopStream();
         bStartStop.setText(getResources().getString(R.string.start_button));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2

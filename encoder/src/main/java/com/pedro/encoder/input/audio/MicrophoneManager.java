@@ -67,11 +67,10 @@ public class MicrophoneManager {
       new Thread(new Runnable() {
         @Override
         public void run() {
-          android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
           while (running && !Thread.interrupted()) {
             DataTaken dataTaken = read();
             if (dataTaken != null) {
-              getMicrophoneData.inputPcmData(dataTaken.getPcmBuffer(), dataTaken.getSize());
+              getMicrophoneData.inputPCMData(dataTaken.getPcmBuffer(), dataTaken.getSize());
             } else {
               running = false;
             }

@@ -2,6 +2,7 @@ package com.pedro.rtplibrary.base;
 
 import android.content.Context;
 import android.graphics.ImageFormat;
+import android.graphics.PointF;
 import android.hardware.camera2.CameraCharacteristics;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
@@ -22,6 +23,7 @@ import com.pedro.encoder.input.video.GetCameraData;
 import com.pedro.encoder.utils.gl.GifStreamObject;
 import com.pedro.encoder.utils.gl.ImageStreamObject;
 import com.pedro.encoder.utils.gl.TextStreamObject;
+import com.pedro.encoder.utils.gl.TranslateTo;
 import com.pedro.encoder.video.FormatVideoEncoder;
 import com.pedro.encoder.video.GetH264Data;
 import com.pedro.encoder.video.VideoEncoder;
@@ -133,7 +135,10 @@ public abstract class Camera2Base
     return result;
   }
 
-  public abstract boolean prepareAudio();
+  public boolean prepareAudio() {
+    microphoneManager.createMicrophone();
+    return audioEncoder.prepareAudioEncoder();
+  }
 
   /*Need be called while stream*/
   public void startRecord(String path) throws IOException {
@@ -239,14 +244,6 @@ public abstract class Camera2Base
     streaming = false;
   }
 
-  public int getStreamWidth() {
-    return videoEncoder.getWidth();
-  }
-
-  public int getStreamHeight() {
-    return videoEncoder.getHeight();
-  }
-
   public void disableAudio() {
     microphoneManager.mute();
   }
@@ -279,7 +276,7 @@ public abstract class Camera2Base
     }
   }
 
-  public void setGif(GifStreamObject gifStreamObject) throws RuntimeException {
+  public void setGifStreamObject(GifStreamObject gifStreamObject) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setGif(gifStreamObject);
     } else {
@@ -287,7 +284,7 @@ public abstract class Camera2Base
     }
   }
 
-  public void setImage(ImageStreamObject imageStreamObject) throws RuntimeException {
+  public void setImageStreamObject(ImageStreamObject imageStreamObject) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setImage(imageStreamObject);
     } else {
@@ -295,7 +292,7 @@ public abstract class Camera2Base
     }
   }
 
-  public void setText(TextStreamObject textStreamObject) throws RuntimeException {
+  public void setTextStreamObject(TextStreamObject textStreamObject) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setText(textStreamObject);
     } else {
@@ -303,15 +300,88 @@ public abstract class Camera2Base
     }
   }
 
-  private void stopOpenGlRender() {
-    openGlView.stopGlThread();
-    cameraManager.closeCamera(false);
+  public void clearStreamObject() throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.clear();
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set a text");
+    }
   }
 
-  private void startOpenGlRender() {
-    openGlView.startGLThread();
-    cameraManager.prepareCamera(openGlView.getSurface(), true);
-    cameraManager.openLastCamera();
+  /**
+   * @param alpha of the stream object on fly, 1.0f totally opaque and 0.0f totally transparent
+   * @throws RuntimeException
+   */
+  public void setAlphaStreamObject(float alpha) throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.setStreamObjectAlpha(alpha);
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set an alpha");
+    }
+  }
+  
+  /**
+   *
+   * @param sizeX of the stream object in percent: 100 full screen to 1
+   * @param sizeY of the stream object in percent: 100 full screen to 1
+   * @throws RuntimeException
+   */
+  public void setSizeStreamObject(float sizeX, float sizeY) throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.setStreamObjectSize(sizeX, sizeY);
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set a size");
+    }
+  }
+
+  /**
+   * @param x of the stream object in percent: 100 full screen left to 0 full right
+   * @param y of the stream object in percent: 100 full screen top to 0 full bottom
+   * @throws RuntimeException
+   */
+  public void setPositionStreamObject(float x, float y) throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.setStreamObjectPosition(x, y);
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set a position");
+    }
+  }
+
+  /**
+   *
+   * @param translateTo pre determinate positions
+   * @throws RuntimeException
+   */
+  public void setPositionStreamObject(TranslateTo translateTo) throws RuntimeException {
+    if (openGlView != null) {
+      openGlView.setStreamObjectPosition(translateTo);
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to set a position");
+    }
+  }
+
+  /**
+   * @return scale in percent, 0 is stream not started
+   * @throws RuntimeException
+   */
+  public PointF getSizeStreamObject() throws RuntimeException {
+    if (openGlView != null) {
+      return openGlView.getScale();
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to get position");
+    }
+  }
+
+  /**
+   * @return position in percent, 0 is stream not started
+   * @throws RuntimeException
+   */
+  public PointF getPositionStreamObject() throws RuntimeException {
+    if (openGlView != null) {
+      return openGlView.getPosition();
+    } else {
+      throw new RuntimeException("You must use OpenGlView in the constructor to get scale");
+    }
   }
 
   /**
@@ -370,18 +440,13 @@ public abstract class Camera2Base
   }
 
   @Override
-  public void inputPcmData(byte[] buffer, int size) {
-    audioEncoder.inputPcmData(buffer, size);
+  public void inputPCMData(byte[] buffer, int size) {
+    audioEncoder.inputPCMData(buffer, size);
   }
 
   @Override
-  public void inputYv12Data(byte[] buffer) {
-    videoEncoder.inputYv12Data(buffer);
-  }
-
-  @Override
-  public void inputNv21Data(byte[] buffer) {
-    videoEncoder.inputNv21Data(buffer);
+  public void inputYUVData(byte[] buffer) {
+    videoEncoder.inputYUVData(buffer);
   }
 
   @Override

@@ -88,7 +88,10 @@ public abstract class DisplayBase
         FormatVideoEncoder.SURFACE);
   }
 
-  public abstract boolean prepareAudio();
+  public boolean prepareAudio() {
+    microphoneManager.createMicrophone();
+    return audioEncoder.prepareAudioEncoder();
+  }
 
   /*Need be called while stream*/
   public void startRecord(String path) throws IOException {
@@ -213,18 +216,13 @@ public abstract class DisplayBase
   }
 
   @Override
-  public void inputPcmData(byte[] buffer, int size) {
-    audioEncoder.inputPcmData(buffer, size);
+  public void inputPCMData(byte[] buffer, int size) {
+    audioEncoder.inputPCMData(buffer, size);
   }
 
   @Override
-  public void inputYv12Data(byte[] buffer) {
-    videoEncoder.inputYv12Data(buffer);
-  }
-
-  @Override
-  public void inputNv21Data(byte[] buffer) {
-    videoEncoder.inputNv21Data(buffer);
+  public void inputYUVData(byte[] buffer) {
+    videoEncoder.inputYUVData(buffer);
   }
 
   @Override

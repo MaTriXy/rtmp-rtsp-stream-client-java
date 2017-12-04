@@ -1,6 +1,5 @@
 package com.pedro.rtmpstreamer.customexample;
 
-import android.hardware.Camera;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -54,6 +53,7 @@ public class RtmpActivity extends AppCompatActivity
   private CheckBox cbEchoCanceler, cbNoiseSuppressor, cbHardwareRotation;
   private EditText etVideoBitrate, etFps, etAudioBitrate, etSampleRate, etWowzaUser,
       etWowzaPassword;
+  private String lastVideoBitrate;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -63,36 +63,48 @@ public class RtmpActivity extends AppCompatActivity
     getSupportActionBar().setDisplayHomeAsUpEnabled(true);
     getSupportActionBar().setHomeButtonEnabled(true);
 
-    SurfaceView surfaceView = (SurfaceView) findViewById(R.id.surfaceView);
+    SurfaceView surfaceView = findViewById(R.id.surfaceView);
     surfaceView.getHolder().addCallback(this);
     rtmpCamera1 = new RtmpCamera1(surfaceView, this);
     prepareOptionsMenuViews();
 
-    etUrl = (EditText) findViewById(R.id.et_rtp_url);
+    etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtmp);
-    bStartStop = (Button) findViewById(R.id.b_start_stop);
+    bStartStop = findViewById(R.id.b_start_stop);
     bStartStop.setOnClickListener(this);
-    bRecord = (Button) findViewById(R.id.b_record);
+    bRecord = findViewById(R.id.b_record);
     bRecord.setOnClickListener(this);
-    Button switchCamera = (Button) findViewById(R.id.switch_camera);
+    Button switchCamera = findViewById(R.id.switch_camera);
     switchCamera.setOnClickListener(this);
   }
 
   private void prepareOptionsMenuViews() {
-    drawerLayout = (DrawerLayout) findViewById(R.id.activity_custom);
-    navigationView = (NavigationView) findViewById(R.id.nv_rtp);
+    drawerLayout = findViewById(R.id.activity_custom);
+    navigationView = findViewById(R.id.nv_rtp);
+
     navigationView.inflateMenu(R.menu.options_rtmp);
     actionBarDrawerToggle = new ActionBarDrawerToggle(this, drawerLayout, R.string.rtsp_streamer,
         R.string.rtsp_streamer) {
 
       public void onDrawerOpened(View drawerView) {
         actionBarDrawerToggle.syncState();
+        lastVideoBitrate = etVideoBitrate.getText().toString();
       }
 
       public void onDrawerClosed(View view) {
         actionBarDrawerToggle.syncState();
-        rtmpCamera1.setVideoBitrateOnFly(
-            Integer.parseInt(etVideoBitrate.getText().toString()) * 1024);
+        if (!lastVideoBitrate.equals(etVideoBitrate.getText().toString())
+            && rtmpCamera1.isStreaming()) {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            int bitrate = Integer.parseInt(etVideoBitrate.getText().toString()) * 1024;
+            rtmpCamera1.setVideoBitrateOnFly(bitrate);
+            Toast.makeText(RtmpActivity.this, "New bitrate: " + bitrate, Toast.LENGTH_SHORT).
+                show();
+          } else {
+            Toast.makeText(RtmpActivity.this, "Bitrate on fly ignored, Required min API 19",
+                Toast.LENGTH_SHORT).show();
+          }
+        }
       }
     };
     drawerLayout.addDrawerListener(actionBarDrawerToggle);
@@ -313,11 +325,12 @@ public class RtmpActivity extends AppCompatActivity
   }
 
   @Override
-  public void onConnectionFailedRtmp() {
+  public void onConnectionFailedRtmp(final String reason) {
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
-        Toast.makeText(RtmpActivity.this, "Connection failed", Toast.LENGTH_SHORT).show();
+        Toast.makeText(RtmpActivity.this, "Connection failed. " + reason, Toast.LENGTH_SHORT)
+            .show();
         rtmpCamera1.stopStream();
         bStartStop.setText(getResources().getString(R.string.start_button));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2

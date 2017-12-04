@@ -37,7 +37,7 @@ allprojects {
   }
 }
 dependencies {
-  compile 'com.github.pedroSG94.rtmp-rtsp-stream-client-java:rtplibrary:1.1.6'
+  compile 'com.github.pedroSG94.rtmp-rtsp-stream-client-java:rtplibrary:1.2.4'
 }
 
 ```
@@ -45,6 +45,7 @@ dependencies {
 ## Features:
 
 - [x] Android min API 16.
+- [x] Support [camera1](https://developer.android.com/reference/android/hardware/Camera.html) and [camera2](https://developer.android.com/reference/android/hardware/camera2/package-summary.html) API
 - [x] Encoder type buffer to buffer.
 - [x] Encoder type surface to buffer.
 - [x] RTMP/RTSP auth wowza.
@@ -58,6 +59,8 @@ dependencies {
 - [x] RTSP TCP/UDP.
 - [x] Stream from MP4 file (only video, no sound, API 18+).
 - [x] Stream device display(API 21+).
+- [X] Set Image, Gif or Text to stream on real time.
+- [X] RTMPS and RTSPS
 
 ### Backlog
 
@@ -65,10 +68,10 @@ dependencies {
 
 ## Use example:
 
-### RTMP:
-
-This code is a basic example. 
+This code is a basic example.
 I recommend you go to Activities in app module and see all examples.
+
+### RTMP:
 
 ```java
 

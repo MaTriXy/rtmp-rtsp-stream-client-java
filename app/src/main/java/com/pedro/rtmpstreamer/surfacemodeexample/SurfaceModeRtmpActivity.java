@@ -16,9 +16,6 @@ import com.pedro.rtmpstreamer.R;
 
 import net.ossrs.rtmp.ConnectCheckerRtmp;
 
-/**
- * Unstable activity. See builder header.
- */
 @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
 public class SurfaceModeRtmpActivity extends AppCompatActivity
     implements ConnectCheckerRtmp, View.OnClickListener {
@@ -32,10 +29,10 @@ public class SurfaceModeRtmpActivity extends AppCompatActivity
     super.onCreate(savedInstanceState);
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     setContentView(R.layout.activity_example);
-    SurfaceView surfaceView = (SurfaceView) findViewById(R.id.surfaceView);
-    button = (Button) findViewById(R.id.b_start_stop);
+    SurfaceView surfaceView = findViewById(R.id.surfaceView);
+    button = findViewById(R.id.b_start_stop);
     button.setOnClickListener(this);
-    etUrl = (EditText) findViewById(R.id.et_rtp_url);
+    etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtmp);
     rtmpCamera2 = new RtmpCamera2(surfaceView, this);
   }
@@ -52,12 +49,12 @@ public class SurfaceModeRtmpActivity extends AppCompatActivity
   }
 
   @Override
-  public void onConnectionFailedRtmp() {
+  public void onConnectionFailedRtmp(final String reason) {
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
-        Toast.makeText(SurfaceModeRtmpActivity.this, "Connection failed", Toast.LENGTH_SHORT)
-            .show();
+        Toast.makeText(SurfaceModeRtmpActivity.this, "Connection failed. " + reason,
+            Toast.LENGTH_SHORT).show();
         rtmpCamera2.stopStream();
         rtmpCamera2.stopPreview();
         button.setText(R.string.start_button);
