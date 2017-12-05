@@ -256,8 +256,17 @@ public abstract class Camera1Base
     streaming = false;
   }
 
-  public List<String> getResolutions() {
-    List<Camera.Size> list = cameraManager.getPreviewSize();
+  public List<String> getResolutionsBack() {
+    List<Camera.Size> list = cameraManager.getPreviewSizeBack();
+    List<String> resolutions = new ArrayList<>();
+    for (Camera.Size size : list) {
+      resolutions.add(size.width + "X" + size.height);
+    }
+    return resolutions;
+  }
+
+  public List<String> getResolutionsFront() {
+    List<Camera.Size> list = cameraManager.getPreviewSizeFront();
     List<String> resolutions = new ArrayList<>();
     for (Camera.Size size : list) {
       resolutions.add(size.width + "X" + size.height);
@@ -455,9 +464,6 @@ public abstract class Camera1Base
 
   protected abstract void getH264DataRtp(ByteBuffer h264Buffer, MediaCodec.BufferInfo info);
 
-  private int fps = 0;
-  private long time = 0;
-
   @Override
   public void getH264Data(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2
@@ -467,12 +473,6 @@ public abstract class Camera1Base
       if (canRecord) {
         mediaMuxer.writeSampleData(videoTrack, h264Buffer, info);
       }
-    }
-    fps++;
-    if (System.currentTimeMillis() - 1000 > time) {
-      time = System.currentTimeMillis();
-      Log.e("Pedro", "FPS: " + fps);
-      fps = 0;
     }
     getH264DataRtp(h264Buffer, info);
   }
