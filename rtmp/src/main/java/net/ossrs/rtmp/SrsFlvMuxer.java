@@ -61,6 +61,7 @@ public class SrsFlvMuxer {
   private ConnectCheckerRtmp connectCheckerRtmp;
   private int sampleRate = 44100;
   private boolean isPpsSpsSend = false;
+  private byte profileIop = ProfileIop.BASELINE;
 
   /**
    * constructor.
@@ -68,6 +69,11 @@ public class SrsFlvMuxer {
   public SrsFlvMuxer(ConnectCheckerRtmp connectCheckerRtmp) {
     this.connectCheckerRtmp = connectCheckerRtmp;
     publisher = new DefaultRtmpPublisher(connectCheckerRtmp);
+  }
+
+  public void setProfileIop(byte profileIop)
+  {
+    this.profileIop = profileIop;
   }
 
   public void setSpsPPs(ByteBuffer sps, ByteBuffer pps) {
@@ -452,7 +458,7 @@ public class SrsFlvMuxer {
       // AVCProfileIndication
       seq_hdr.data.put(profile_idc);
       // profile_compatibility
-      seq_hdr.data.put((byte) 0x00);
+      seq_hdr.data.put(profileIop);
       // AVCLevelIndication
       seq_hdr.data.put(level_idc);
       // lengthSizeMinusOne, or NAL_unit_length, always use 4bytes size,

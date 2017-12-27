@@ -146,7 +146,6 @@ public class Camera1ApiManager implements Camera.PreviewCallback {
                 parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
               } else if (supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
                 parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
-                camera.autoFocus(null);
               } else {
                 parameters.setFocusMode(supportedFocusModes.get(0));
               }
@@ -217,16 +216,9 @@ public class Camera1ApiManager implements Camera.PreviewCallback {
 
   public void stop() {
     if (camera != null) {
-      if (handlerThread != null) {
-        handlerThread.quit();
-        handlerThread = null;
-      }
-      if (thread != null) {
-        thread.removeCallbacksAndMessages(null);
-        thread = null;
-      }
-      camera.setPreviewCallbackWithBuffer(null);
       camera.stopPreview();
+      camera.setPreviewCallback(null);
+      camera.setPreviewCallbackWithBuffer(null);
       camera.release();
       camera = null;
       if (surfaceView != null) {
@@ -236,9 +228,17 @@ public class Camera1ApiManager implements Camera.PreviewCallback {
       } else {
         clearSurface(surfaceTexture);
       }
-      running = false;
-      prepared = false;
     }
+    if (handlerThread != null) {
+      handlerThread.quit();
+      handlerThread = null;
+    }
+    if (thread != null) {
+      thread.removeCallbacksAndMessages(null);
+      thread = null;
+    }
+    running = false;
+    prepared = false;
   }
 
   /**
