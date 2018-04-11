@@ -8,6 +8,7 @@ import android.view.SurfaceView;
 import android.view.TextureView;
 
 import com.pedro.rtplibrary.base.Camera2Base;
+import com.pedro.rtplibrary.view.LightOpenGlView;
 import com.pedro.rtplibrary.view.OpenGlView;
 import com.pedro.rtsp.rtsp.Protocol;
 import com.pedro.rtsp.rtsp.RtspClient;
@@ -27,17 +28,22 @@ public class RtspCamera2 extends Camera2Base {
   private RtspClient rtspClient;
 
   public RtspCamera2(SurfaceView surfaceView, ConnectCheckerRtsp connectCheckerRtsp) {
-    super(surfaceView, surfaceView.getContext());
+    super(surfaceView);
     rtspClient = new RtspClient(connectCheckerRtsp);
   }
 
   public RtspCamera2(TextureView textureView, ConnectCheckerRtsp connectCheckerRtsp) {
-    super(textureView, textureView.getContext());
+    super(textureView);
     rtspClient = new RtspClient(connectCheckerRtsp);
   }
 
   public RtspCamera2(OpenGlView openGlView, ConnectCheckerRtsp connectCheckerRtsp) {
-    super(openGlView, openGlView.getContext());
+    super(openGlView);
+    rtspClient = new RtspClient(connectCheckerRtsp);
+  }
+
+  public RtspCamera2(LightOpenGlView lightOpenGlView, ConnectCheckerRtsp connectCheckerRtsp) {
+    super(lightOpenGlView);
     rtspClient = new RtspClient(connectCheckerRtsp);
   }
 

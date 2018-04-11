@@ -95,6 +95,7 @@ public class RtmpConnection implements RtmpPublisher {
     handshake.readS0(in);
     handshake.readS1(in);
     handshake.writeC2(out);
+    out.flush();
     handshake.readS2(in);
   }
 
@@ -142,6 +143,7 @@ public class RtmpConnection implements RtmpPublisher {
         socket.connect(socketAddress, 3000);
       } else {
         socket = CreateSSLSocket.createSSlSocket(host, port);
+        if (socket == null) throw new IOException("Socket creation failed");
       }
       inputStream = new BufferedInputStream(socket.getInputStream());
       outputStream = new BufferedOutputStream(socket.getOutputStream());

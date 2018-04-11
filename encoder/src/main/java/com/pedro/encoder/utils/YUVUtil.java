@@ -10,38 +10,19 @@ import java.io.IOException;
 
 /**
  * Created by pedro on 25/01/17.
+ * https://wiki.videolan.org/YUV/#I420
  */
 
 public class YUVUtil {
 
-  private static byte[] rotate90Buffer;
-  private static byte[] rotate180Buffer;
-  private static byte[] rotate270Buffer;
+  private static byte[] preAllocatedBufferRotate;
+  private static byte[] preAllocatedBufferRotate270;
+  private static byte[] preAllocatedBufferColor;
 
-  public static void preAllocateRotateBuffers(int length) {
-    rotate90Buffer = new byte[length];
-    rotate180Buffer = new byte[length];
-    rotate270Buffer = new byte[length];
-  }
-
-  private static byte[] yv420pBuffer;
-  private static byte[] yv420psBuffer;
-  private static byte[] yv420spBuffer;
-
-  public static void preAllocateYv12Buffers(int length) {
-    yv420pBuffer = new byte[length];
-    yv420psBuffer = new byte[length];
-    yv420spBuffer = new byte[length];
-  }
-
-  private static byte[] nv420pBuffer;
-  private static byte[] nv420spBuffer;
-  private static byte[] nv420ppBuffer;
-
-  public static void preAllocateNv21Buffers(int length) {
-    nv420pBuffer = new byte[length];
-    nv420spBuffer = new byte[length];
-    nv420ppBuffer = new byte[length];
+  public static void preAllocateBuffers(int length) {
+    preAllocatedBufferRotate = new byte[length];
+    preAllocatedBufferRotate270 = new byte[length];
+    preAllocatedBufferColor = new byte[length];
   }
 
   // for the vbuffer for YV12(android YUV), @see below:
@@ -103,87 +84,102 @@ public class YUVUtil {
       FormatVideoEncoder formatVideoEncoder) {
     switch (formatVideoEncoder) {
       case YUV420PLANAR:
-        return YV12toYUV420Planar(input, width, height);
-      //this is like nv21
+        return YV12toI420(input, width, height);
       case YUV420PACKEDSEMIPLANAR:
-        return YV12toYUV420PackedSemiPlanar(input, width, height);
+        return YV12toNV12(input, width, height);
       case YUV420SEMIPLANAR:
-        return YV12toYUV420SemiPlanar(input, width, height);
-      //convert to nv21 and then to yuv420PP
+        return YV12toNV12(input, width, height);
+      //convert to nv21 and then to i420.
       case YUV420PACKEDPLANAR:
-        return NV21toYUV420PackedPlanar(YV12toYUV420PackedSemiPlanar(input, width, height), width,
-            height);
+        return NV21toI420(YV12toNV21(input, width, height), width, height);
       default:
         return null;
     }
   }
 
   // the color transform, @see http://stackoverflow.com/questions/15739684/mediacodec-and-camera-color-space-incorrect
-  public static byte[] YV12toYUV420PackedSemiPlanar(byte[] input, int width, int height) {
-        /*
-         * COLOR_TI_FormatYUV420PackedSemiPlanar is NV21
-         * We convert by putting the corresponding U and V bytes together (interleaved).
-         */
+  public static byte[] YV12toNV12(byte[] input, int width, int height) {
     final int frameSize = width * height;
     final int qFrameSize = frameSize / 4;
-
-    System.arraycopy(input, 0, yv420psBuffer, 0, frameSize); // Y
-
+    System.arraycopy(input, 0, preAllocatedBufferColor, 0, frameSize); // Y
     for (int i = 0; i < qFrameSize; i++) {
-      yv420psBuffer[frameSize + i * 2 + 1] = input[frameSize + i + qFrameSize]; // Cb (U)
-      yv420psBuffer[frameSize + i * 2] = input[frameSize + i]; // Cr (V)
+      preAllocatedBufferColor[frameSize + i * 2] = input[frameSize + i + qFrameSize]; // Cb (U)
+      preAllocatedBufferColor[frameSize + i * 2 + 1] = input[frameSize + i]; // Cr (V)
     }
-    return yv420psBuffer;
+    return preAllocatedBufferColor;
   }
 
-  // the color transform, @see http://stackoverflow.com/questions/15739684/mediacodec-and-camera-color-space-incorrect
-  public static byte[] YV12toYUV420SemiPlanar(byte[] input, int width, int height) {
-        /*
-         * COLOR_FormatYUV420SemiPlanar is NV12
-         * We convert by putting the corresponding U and V bytes together (interleaved).
-         */
+  public static byte[] YV12toI420(byte[] input, int width, int height) {
     final int frameSize = width * height;
     final int qFrameSize = frameSize / 4;
-
-    System.arraycopy(input, 0, yv420spBuffer, 0, frameSize); // Y
-
-    for (int i = 0; i < qFrameSize; i++) {
-      yv420spBuffer[frameSize + i * 2] = input[frameSize + i + qFrameSize]; // Cb (U)
-      yv420spBuffer[frameSize + i * 2 + 1] = input[frameSize + i]; // Cr (V)
-    }
-    return yv420spBuffer;
+    System.arraycopy(input, 0, preAllocatedBufferColor, 0, frameSize); // Y
+    System.arraycopy(input, frameSize + qFrameSize, preAllocatedBufferColor, frameSize,
+        qFrameSize); // Cb (U)
+    System.arraycopy(input, frameSize, preAllocatedBufferColor, frameSize + qFrameSize,
+        qFrameSize); // Cr (V)
+    return preAllocatedBufferColor;
   }
 
-  public static byte[] YV12toYUV420Planar(byte[] input, int width, int height) {
-        /*
-         * COLOR_FormatYUV420Planar is I420 which is like YV12, but with U and V reversed.
-         * So we just have to reverse U and V.
-         */
-
+  public static byte[] YV12toNV21(byte[] input, int width, int height) {
     final int frameSize = width * height;
     final int qFrameSize = frameSize / 4;
-
-    System.arraycopy(input, 0, yv420pBuffer, 0, frameSize); // Y
-    System.arraycopy(input, frameSize + qFrameSize, yv420pBuffer, frameSize, qFrameSize); // Cb (U)
-    System.arraycopy(input, frameSize, yv420pBuffer, frameSize + qFrameSize, qFrameSize); // Cr (V)
-    return yv420pBuffer;
+    System.arraycopy(input, 0, preAllocatedBufferColor, 0, frameSize); // Y
+    for (int i = 0; i < qFrameSize; i++) {
+      preAllocatedBufferColor[frameSize + i * 2 + 1] = input[frameSize + i + qFrameSize]; // Cb (U)
+      preAllocatedBufferColor[frameSize + i * 2] = input[frameSize + i]; // Cr (V)
+    }
+    return preAllocatedBufferColor;
   }
 
   public static byte[] NV21toYUV420byColor(byte[] input, int width, int height,
       FormatVideoEncoder formatVideoEncoder) {
     switch (formatVideoEncoder) {
       case YUV420PLANAR:
-        return NV21toYUV420Planar(input, width, height);
+        return NV21toI420(input, width, height);
       case YUV420PACKEDPLANAR:
-        return NV21toYUV420PackedPlanar(input, width, height);
+        return NV21toI420(input, width, height);
       case YUV420SEMIPLANAR:
-        return NV21toYUV420SemiPlanar(input, width, height);
-      //because yuv420PSP and NV21 is the same
+        return NV21toNV12(input, width, height);
+      //yuv420PSP and NV21 is the same
       case YUV420PACKEDSEMIPLANAR:
         return input;
       default:
         return null;
     }
+  }
+
+  // the color transform, @see http://stackoverflow.com/questions/15739684/mediacodec-and-camera-color-space-incorrect
+  public static byte[] NV21toNV12(byte[] input, int width, int height) {
+    final int frameSize = width * height;
+    final int qFrameSize = frameSize / 4;
+    System.arraycopy(input, 0, preAllocatedBufferColor, 0, frameSize); // Y
+    for (int i = 0; i < qFrameSize; i++) {
+      preAllocatedBufferColor[frameSize + i * 2] = input[frameSize + i * 2 + 1]; // Cb (U)
+      preAllocatedBufferColor[frameSize + i * 2 + 1] = input[frameSize + i * 2]; // Cr (V)
+    }
+    return preAllocatedBufferColor;
+  }
+
+  public static byte[] NV21toI420(byte[] input, int width, int height) {
+    final int frameSize = width * height;
+    final int qFrameSize = frameSize / 4;
+    System.arraycopy(input, 0, preAllocatedBufferColor, 0, frameSize); // Y
+    for (int i = 0; i < qFrameSize; i++) {
+      preAllocatedBufferColor[frameSize + i] = input[frameSize + i * 2 + 1]; // Cb (U)
+      preAllocatedBufferColor[frameSize + i + qFrameSize] = input[frameSize + i * 2]; // Cr (V)
+    }
+    return preAllocatedBufferColor;
+  }
+
+  public static byte[] NV21toYV12(byte[] input, int width, int height) {
+    final int frameSize = width * height;
+    final int qFrameSize = frameSize / 4;
+    System.arraycopy(input, 0, preAllocatedBufferColor, 0, frameSize); // Y
+    for (int i = 0; i < qFrameSize; i++) {
+      preAllocatedBufferColor[frameSize + i + qFrameSize] = input[frameSize + i * 2 + 1]; // Cb (U)
+      preAllocatedBufferColor[frameSize + i] = input[frameSize + i * 2]; // Cr (V)
+    }
+    return preAllocatedBufferColor;
   }
 
   public static byte[] rotateNV21(byte[] data, int width, int height, int rotation) {
@@ -206,118 +202,59 @@ public class YUVUtil {
     int i = 0;
     for (int x = 0; x < imageWidth; x++) {
       for (int y = imageHeight - 1; y >= 0; y--) {
-        rotate90Buffer[i] = data[y * imageWidth + x];
-        i++;
+        preAllocatedBufferRotate[i++] = data[y * imageWidth + x];
       }
     }
     // Rotate the U and V color components
-    i = imageWidth * imageHeight * 3 / 2 - 1;
+    int size = imageWidth * imageHeight;
+    i = size * 3 / 2 - 1;
     for (int x = imageWidth - 1; x > 0; x = x - 2) {
       for (int y = 0; y < imageHeight / 2; y++) {
-        rotate90Buffer[i] = data[(imageWidth * imageHeight) + (y * imageWidth) + x];
-        i--;
-        rotate90Buffer[i] = data[(imageWidth * imageHeight) + (y * imageWidth) + (x - 1)];
-        i--;
+        preAllocatedBufferRotate[i--] = data[size + (y * imageWidth) + x];
+        preAllocatedBufferRotate[i--] = data[size + (y * imageWidth) + (x - 1)];
       }
     }
-    return rotate90Buffer;
+    return preAllocatedBufferRotate;
   }
 
   private static byte[] rotateNV21Degree180(byte[] data, int imageWidth, int imageHeight) {
     int count = 0;
     for (int i = imageWidth * imageHeight - 1; i >= 0; i--) {
-      rotate180Buffer[count] = data[i];
+      preAllocatedBufferRotate[count] = data[i];
       count++;
     }
     for (int i = imageWidth * imageHeight * 3 / 2 - 1; i >= imageWidth * imageHeight; i -= 2) {
-      rotate180Buffer[count++] = data[i - 1];
-      rotate180Buffer[count++] = data[i];
+      preAllocatedBufferRotate[count++] = data[i - 1];
+      preAllocatedBufferRotate[count++] = data[i];
     }
-    return rotate180Buffer;
+    return preAllocatedBufferRotate;
   }
 
   private static byte[] rotateNV21Degree270(byte[] data, int imageWidth, int imageHeight) {
-    int nWidth = 0, nHeight = 0;
-    int wh = 0;
-    int uvHeight = 0;
-    if (imageWidth != nWidth || imageHeight != nHeight) {
-      wh = imageWidth * imageHeight;
-      uvHeight = imageHeight >> 1;// uvHeight = height / 2
-    }
-    // ??Y
-    int k = 0;
+    int wh = imageWidth * imageHeight;
+    int uvHeight = imageHeight >> 1;// uvHeight = height / 2
+
+    //Y
+    int cont = 0;
     for (int i = 0; i < imageWidth; i++) {
       int nPos = 0;
       for (int j = 0; j < imageHeight; j++) {
-        rotate270Buffer[k] = data[nPos + i];
-        k++;
+        preAllocatedBufferRotate270[cont++] = data[nPos + i];
         nPos += imageWidth;
       }
     }
+
+    //UV
     for (int i = 0; i < imageWidth; i += 2) {
       int nPos = wh;
       for (int j = 0; j < uvHeight; j++) {
-        rotate270Buffer[k] = data[nPos + i];
-        rotate270Buffer[k + 1] = data[nPos + i + 1];
-        k += 2;
+        preAllocatedBufferRotate270[cont] = data[nPos + i];
+        preAllocatedBufferRotate270[cont + 1] = data[nPos + i + 1];
+        cont += 2;
         nPos += imageWidth;
       }
     }
-    return rotateNV21Degree180(rotate270Buffer, imageWidth, imageHeight);
-  }
-
-  public static byte[] NV21toYUV420PackedPlanar(byte[] input, int width, int height) {
-        /*
-         * COLOR_FormatYUV420Planar is I420 which is like YV12, but with U and V reversed.
-         * So we just have to reverse U and V.
-         */
-    final int frameSize = width * height;
-    final int qFrameSize = frameSize / 4;
-
-    System.arraycopy(input, 0, nv420ppBuffer, 0, frameSize); // Y
-
-    for (int i = 0; i < qFrameSize; i++) {
-      nv420ppBuffer[frameSize + i + qFrameSize] = input[frameSize + i * 2 + 1]; // Cb (U)
-      nv420ppBuffer[frameSize + i] = input[frameSize + i * 2]; // Cr (V)
-    }
-
-    return nv420ppBuffer;
-  }
-
-  // the color transform, @see http://stackoverflow.com/questions/15739684/mediacodec-and-camera-color-space-incorrect
-  public static byte[] NV21toYUV420SemiPlanar(byte[] input, int width, int height) {
-        /*
-         * COLOR_FormatYUV420SemiPlanar is NV12
-         * We convert by putting the corresponding U and V bytes together (interleaved).
-         */
-    final int frameSize = width * height;
-    final int qFrameSize = frameSize / 4;
-
-    System.arraycopy(input, 0, nv420spBuffer, 0, frameSize); // Y
-
-    for (int i = 0; i < qFrameSize; i++) {
-      nv420spBuffer[frameSize + i * 2] = input[frameSize + i * 2 + 1]; // Cb (U)
-      nv420spBuffer[frameSize + i * 2 + 1] = input[frameSize + i * 2]; // Cr (V)
-    }
-    return nv420spBuffer;
-  }
-
-  public static byte[] NV21toYUV420Planar(byte[] input, int width, int height) {
-        /*
-         * COLOR_FormatYUV420Planar is I420 which is like YV12, but with U and V reversed.
-         * So we just have to reverse U and V.
-         */
-    final int frameSize = width * height;
-    final int qFrameSize = frameSize / 4;
-
-    System.arraycopy(input, 0, nv420pBuffer, 0, frameSize); // Y
-
-    for (int i = 0; i < qFrameSize; i++) {
-      nv420pBuffer[frameSize + i] = input[frameSize + i * 2 + 1]; // Cb (U)
-      nv420pBuffer[frameSize + i + qFrameSize] = input[frameSize + i * 2]; // Cr (V)
-    }
-
-    return nv420pBuffer;
+    return rotateNV21Degree180(preAllocatedBufferRotate270, imageWidth, imageHeight);
   }
 
   public void dumpYUVData(byte[] buffer, int len, String name) {
@@ -493,9 +430,9 @@ public class YUVUtil {
   }
 
   public static byte[] bitmapToNV21(int inputWidth, int inputHeight, Bitmap bitmap) {
-    int [] argb = new int[inputWidth * inputHeight];
+    int[] argb = new int[inputWidth * inputHeight];
     bitmap.getPixels(argb, 0, inputWidth, 0, 0, inputWidth, inputHeight);
-    byte [] yuv = ARGBtoYUV420SemiPlanar(argb, inputWidth, inputHeight);
+    byte[] yuv = ARGBtoYUV420SemiPlanar(argb, inputWidth, inputHeight);
     bitmap.recycle();
     return yuv;
   }

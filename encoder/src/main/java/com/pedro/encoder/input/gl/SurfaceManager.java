@@ -6,9 +6,9 @@ import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
 import android.opengl.EGLExt;
 import android.opengl.EGLSurface;
-import android.opengl.GLES20;
 import android.os.Build;
 import android.support.annotation.RequiresApi;
+import android.util.Log;
 import android.view.Surface;
 import com.pedro.encoder.utils.gl.GlUtil;
 
@@ -40,14 +40,27 @@ public class SurfaceManager {
   /**
    * Creates an EGL context and an EGL surface.
    */
+  public SurfaceManager(Surface surface, EGLContext eglContext) {
+    this.surface = surface;
+    eglSharedContext = eglContext;
+    eglSetup();
+  }
+
+  /**
+   * Creates an EGL context and an EGL surface.
+   */
   public SurfaceManager(Surface surface) {
     this.surface = surface;
     eglSetup();
   }
 
+  public SurfaceManager() {
+    eglSetup();
+  }
+
   public void makeCurrent() {
     if (!EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
-      throw new RuntimeException("eglMakeCurrent failed");
+      Log.e("Error", "eglMakeCurrent failed");
     }
   }
 
@@ -80,13 +93,25 @@ public class SurfaceManager {
     int[] attribList;
     if (eglSharedContext == null) {
       attribList = new int[] {
-          EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
-          EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_NONE
+          EGL14.EGL_RED_SIZE, 8,
+          EGL14.EGL_GREEN_SIZE, 8,
+          EGL14.EGL_BLUE_SIZE, 8,
+          EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+          /* AA https://stackoverflow.com/questions/27035893/antialiasing-in-opengl-es-2-0 */
+          //EGL14.EGL_SAMPLE_BUFFERS, 1 /* true */,
+          //EGL14.EGL_SAMPLES, 4, /* increase to more smooth limit of your GPU */
+          EGL14.EGL_NONE
       };
     } else {
       attribList = new int[] {
-          EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
-          EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL_RECORDABLE_ANDROID, 1,
+          EGL14.EGL_RED_SIZE, 8,
+          EGL14.EGL_GREEN_SIZE, 8,
+          EGL14.EGL_BLUE_SIZE, 8,
+          EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+          EGL_RECORDABLE_ANDROID, 1,
+          /* AA https://stackoverflow.com/questions/27035893/antialiasing-in-opengl-es-2-0 */
+          //EGL14.EGL_SAMPLE_BUFFERS, 1 /* true */,
+          //EGL14.EGL_SAMPLES, 4, /* increase to more smooth limit of your GPU */
           EGL14.EGL_NONE
       };
     }
@@ -97,7 +122,8 @@ public class SurfaceManager {
 
     // Configure context for OpenGL ES 2.0.
     int[] attrib_list = {
-        EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE
+        EGL14.EGL_CONTEXT_CLIENT_VERSION, 2,
+        EGL14.EGL_NONE
     };
 
     if (eglSharedContext == null) {
@@ -109,14 +135,20 @@ public class SurfaceManager {
     GlUtil.checkEglError("eglCreateContext");
 
     // Create a window surface, and attach it to the Surface we received.
-    int[] surfaceAttribs = {
-        EGL14.EGL_NONE
-    };
-    eglSurface = EGL14.eglCreateWindowSurface(eglDisplay, configs[0], surface, surfaceAttribs, 0);
+    if (surface == null) {
+      int[] surfaceAttribs = {
+          EGL14.EGL_WIDTH, 1,
+          EGL14.EGL_HEIGHT, 1,
+          EGL14.EGL_NONE
+      };
+      eglSurface = EGL14.eglCreatePbufferSurface(eglDisplay, configs[0], surfaceAttribs, 0);
+    } else {
+      int[] surfaceAttribs = {
+          EGL14.EGL_NONE
+      };
+      eglSurface = EGL14.eglCreateWindowSurface(eglDisplay, configs[0], surface, surfaceAttribs, 0);
+    }
     GlUtil.checkEglError("eglCreateWindowSurface");
-
-    GLES20.glDisable(GLES20.GL_DEPTH_TEST);
-    GLES20.glDisable(GLES20.GL_CULL_FACE);
   }
 
   /**

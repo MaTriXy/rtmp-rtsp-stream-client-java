@@ -26,8 +26,8 @@ import android.widget.Spinner;
 import android.widget.Toast;
 import com.pedro.encoder.input.video.CameraOpenException;
 import com.pedro.encoder.input.video.EffectManager;
-import com.pedro.rtpstreamer.R;
 import com.pedro.rtplibrary.rtmp.RtmpCamera1;
+import com.pedro.rtpstreamer.R;
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
@@ -137,7 +137,7 @@ public class RtmpActivity extends AppCompatActivity
         new ArrayAdapter<>(this, R.layout.support_simple_spinner_dropdown_item);
     orientationAdapter.addAll(orientations);
     spOrientation.setAdapter(orientationAdapter);
-    spOrientation.setSelection(0);
+    spOrientation.setSelection(1);
 
     ArrayAdapter<String> resolutionAdapter =
         new ArrayAdapter<>(this, R.layout.support_simple_spinner_dropdown_item);
@@ -308,24 +308,6 @@ public class RtmpActivity extends AppCompatActivity
   }
 
   @Override
-  protected void onPause() {
-    super.onPause();
-    if (rtmpCamera1.isStreaming()) {
-      rtmpCamera1.stopStream();
-      rtmpCamera1.stopPreview();
-      bStartStop.setText(getResources().getString(R.string.start_button));
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 && rtmpCamera1.isRecording()) {
-      rtmpCamera1.stopRecord();
-      bRecord.setText(R.string.start_record);
-      Toast.makeText(this,
-          "file " + currentDateAndTime + ".mp4 saved in " + folder.getAbsolutePath(),
-          Toast.LENGTH_SHORT).show();
-      currentDateAndTime = "";
-    }
-  }
-
-  @Override
   public void onConnectionSuccessRtmp() {
     runOnUiThread(new Runnable() {
       @Override
@@ -398,6 +380,11 @@ public class RtmpActivity extends AppCompatActivity
 
   @Override
   public void surfaceCreated(SurfaceHolder surfaceHolder) {
+    drawerLayout.openDrawer(Gravity.START);
+  }
+
+  @Override
+  public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
     rtmpCamera1.startPreview();
     // optionally:
     //rtmpCamera1.startPreview(Camera.CameraInfo.CAMERA_FACING_BACK);
@@ -406,12 +393,19 @@ public class RtmpActivity extends AppCompatActivity
   }
 
   @Override
-  public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
-
-  }
-
-  @Override
   public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 && rtmpCamera1.isRecording()) {
+      rtmpCamera1.stopRecord();
+      bRecord.setText(R.string.start_record);
+      Toast.makeText(this,
+          "file " + currentDateAndTime + ".mp4 saved in " + folder.getAbsolutePath(),
+          Toast.LENGTH_SHORT).show();
+      currentDateAndTime = "";
+    }
+    if (rtmpCamera1.isStreaming()) {
+      rtmpCamera1.stopStream();
+      bStartStop.setText(getResources().getString(R.string.start_button));
+    }
     rtmpCamera1.stopPreview();
   }
 }

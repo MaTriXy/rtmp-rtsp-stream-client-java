@@ -103,7 +103,8 @@ public class RtspClient {
       tlsEnabled = true;
     } else {
       streaming = false;
-      connectCheckerRtsp.onConnectionFailedRtsp("Endpoint malformed, should be: rtsp://ip:port/appname/streamname");
+      connectCheckerRtsp.onConnectionFailedRtsp(
+          "Endpoint malformed, should be: rtsp://ip:port/appname/streamname");
       return;
     }
     host = matcher.group(1);
@@ -168,7 +169,9 @@ public class RtspClient {
               connectionSocket.connect(socketAddress, 3000);
             } else {
               connectionSocket = CreateSSLSocket.createSSlSocket(host, port);
+              if (connectionSocket == null) throw new IOException("Socket creation failed");
             }
+            connectionSocket.setSoTimeout(3000);
             reader = new BufferedReader(new InputStreamReader(connectionSocket.getInputStream()));
             outputStream = connectionSocket.getOutputStream();
             writer = new BufferedWriter(new OutputStreamWriter(outputStream));
@@ -198,7 +201,8 @@ public class RtspClient {
                 } else if (statusAuth == 200) {
                   connectCheckerRtsp.onAuthSuccessRtsp();
                 } else {
-                  connectCheckerRtsp.onConnectionFailedRtsp("Error configure stream, announce with auth failed");
+                  connectCheckerRtsp.onConnectionFailedRtsp(
+                      "Error configure stream, announce with auth failed");
                 }
               }
             } else if (status != 200) {
@@ -231,6 +235,11 @@ public class RtspClient {
 
   public void disconnect() {
     if (streaming) {
+      streaming = false;
+      if (h264Packet != null && aacPacket != null) {
+        h264Packet.close();
+        aacPacket.close();
+      }
       thread = new Thread(new Runnable() {
         @Override
         public void run() {
@@ -241,14 +250,9 @@ public class RtspClient {
             Log.e(TAG, "disconnect error", e);
           }
           connectCheckerRtsp.onDisconnectRtsp();
-          streaming = false;
         }
       });
       thread.start();
-      if (h264Packet != null && aacPacket != null) {
-        h264Packet.close();
-        aacPacket.close();
-      }
       mCSeq = 0;
       sps = null;
       pps = null;
@@ -384,7 +388,9 @@ public class RtspClient {
         + (++mCSeq)
         + "\r\n"
         + "Content-Length: 0\r\n"
-        + (sessionId != null ? "Session: " + sessionId + "\r\n" : "")
+        + (sessionId != null ? "Session: "
+        + sessionId
+        + "\r\n" : "")
         // For some reason you may have to remove last "\r\n" in the next line to make the RTSP client work with your wowza server :/
         + (authorization != null ? "Authorization: " + authorization + "\r\n" : "")
         + "\r\n";
@@ -394,6 +400,7 @@ public class RtspClient {
     try {
       String response = "";
       String line;
+
       while ((line = reader.readLine()) != null) {
         if (line.contains("Session")) {
           Pattern rtspPattern = Pattern.compile("Session: (\\w+)");
@@ -460,26 +467,35 @@ public class RtspClient {
     Pattern authPattern =
         Pattern.compile("realm=\"(.+)\",\\s+nonce=\"(\\w+)\"", Pattern.CASE_INSENSITIVE);
     Matcher matcher = authPattern.matcher(authResponse);
-    matcher.find();
-    String realm = matcher.group(1);
-    String nonce = matcher.group(2);
-    String hash1 = AuthUtil.getMd5Hash(user + ":" + realm + ":" + password);
-    String hash2 = AuthUtil.getMd5Hash("ANNOUNCE:rtsp://" + host + ":" + port + path);
-    String hash3 = AuthUtil.getMd5Hash(hash1 + ":" + nonce + ":" + hash2);
-    return "Digest username=\""
-        + user
-        + "\",realm=\""
-        + realm
-        + "\",nonce=\""
-        + nonce
-        + "\",uri=\"rtsp://"
-        + host
-        + ":"
-        + port
-        + path
-        + "\",response=\""
-        + hash3
-        + "\"";
+    //digest auth
+    if (matcher.find()) {
+      Log.i(TAG, "using digest auth");
+      String realm = matcher.group(1);
+      String nonce = matcher.group(2);
+      String hash1 = AuthUtil.getMd5Hash(user + ":" + realm + ":" + password);
+      String hash2 = AuthUtil.getMd5Hash("ANNOUNCE:rtsp://" + host + ":" + port + path);
+      String hash3 = AuthUtil.getMd5Hash(hash1 + ":" + nonce + ":" + hash2);
+      return "Digest username=\""
+          + user
+          + "\",realm=\""
+          + realm
+          + "\",nonce=\""
+          + nonce
+          + "\",uri=\"rtsp://"
+          + host
+          + ":"
+          + port
+          + path
+          + "\",response=\""
+          + hash3
+          + "\"";
+      //basic auth
+    } else {
+      Log.i(TAG, "using basic auth");
+      String data = user + ":" + password;
+      String base64Data = Base64.encodeToString(data.getBytes(), Base64.DEFAULT);
+      return "Basic " + base64Data;
+    }
   }
 
   private int getResponseStatus(String response) {

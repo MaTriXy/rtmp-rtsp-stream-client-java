@@ -3,7 +3,6 @@ package com.pedro.encoder.input.decoder;
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
-import android.os.Process;
 import android.util.Log;
 import android.view.Surface;
 import java.io.IOException;
@@ -16,7 +15,8 @@ public class VideoDecoder {
 
   private final String TAG = "VideoDecoder";
 
-  private final VideoDecoderInterface videoDecoderInterface;
+  private VideoDecoderInterface videoDecoderInterface;
+  private LoopFileInterface loopFileInterface;
   private MediaExtractor videoExtractor;
   private MediaCodec videoDecoder;
   private MediaCodec.BufferInfo videoInfo = new MediaCodec.BufferInfo();
@@ -26,10 +26,15 @@ public class VideoDecoder {
   private String mime = "";
   private int width;
   private int height;
-  private boolean loopMode = false;
+  private long duration;
+  private static boolean loopMode = false;
+  private volatile long seekTime = 0;
+  private volatile long startMs = 0;
 
-  public VideoDecoder(VideoDecoderInterface videoDecoderInterface) {
+  public VideoDecoder(VideoDecoderInterface videoDecoderInterface,
+      LoopFileInterface loopFileInterface) {
     this.videoDecoderInterface = videoDecoderInterface;
+    this.loopFileInterface = loopFileInterface;
   }
 
   public boolean initExtractor(String filePath) throws IOException {
@@ -45,9 +50,10 @@ public class VideoDecoder {
         videoFormat = null;
       }
     }
-    if (videoFormat != null && mime.equals("video/avc")) {
+    if (videoFormat != null) {
       width = videoFormat.getInteger(MediaFormat.KEY_WIDTH);
       height = videoFormat.getInteger(MediaFormat.KEY_HEIGHT);
+      duration = videoFormat.getLong(MediaFormat.KEY_DURATION);
       return true;
       //video decoder not supported
     } else {
@@ -74,7 +80,6 @@ public class VideoDecoder {
     thread = new Thread(new Runnable() {
       @Override
       public void run() {
-        android.os.Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
         decodeVideo();
       }
     });
@@ -83,6 +88,7 @@ public class VideoDecoder {
 
   public void stop() {
     decoding = false;
+    seekTime = 0;
     if (thread != null) {
       thread.interrupt();
       try {
@@ -105,15 +111,14 @@ public class VideoDecoder {
 
   private void decodeVideo() {
     ByteBuffer[] inputBuffers = videoDecoder.getInputBuffers();
-    long startMs = System.currentTimeMillis();
+    startMs = System.currentTimeMillis();
     while (decoding) {
       int inIndex = videoDecoder.dequeueInputBuffer(10000);
       if (inIndex >= 0) {
         ByteBuffer buffer = inputBuffers[inIndex];
         int sampleSize = videoExtractor.readSampleData(buffer, 0);
         if (sampleSize < 0) {
-          videoDecoder.queueInputBuffer(inIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-          Log.i(TAG, "end of file in");
+          videoDecoder.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
         } else {
           videoDecoder.queueInputBuffer(inIndex, 0, sampleSize, videoExtractor.getSampleTime(), 0);
           videoExtractor.advance();
@@ -121,28 +126,41 @@ public class VideoDecoder {
       }
       int outIndex = videoDecoder.dequeueOutputBuffer(videoInfo, 10000);
       if (outIndex >= 0) {
-        //needed for fix decode speed
-        while (videoInfo.presentationTimeUs / 1000 > System.currentTimeMillis() - startMs) {
+        while (videoExtractor.getSampleTime() / 1000
+            > System.currentTimeMillis() - startMs + seekTime) {
           try {
             Thread.sleep(10);
           } catch (InterruptedException e) {
             thread.interrupt();
-            break;
+            return;
           }
         }
         videoDecoder.releaseOutputBuffer(outIndex, videoInfo.size != 0);
       }
       if ((videoInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+        seekTime = 0;
         Log.i(TAG, "end of file out");
         if (loopMode) {
-          Log.i(TAG, "loop mode, restreaming file");
-          videoExtractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
-          videoDecoder.flush();
+          loopFileInterface.onReset(true);
         } else {
           videoDecoderInterface.onVideoDecoderFinished();
         }
       }
     }
+  }
+
+  public double getTime() {
+    if (decoding) {
+      return videoExtractor.getSampleTime() / 10E5;
+    } else {
+      return 0;
+    }
+  }
+
+  public void moveTo(double time) {
+    videoExtractor.seekTo((long) (time * 10E5), MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+    seekTime = videoExtractor.getSampleTime() / 1000;
+    startMs = System.currentTimeMillis();
   }
 
   public void setLoopMode(boolean loopMode) {
@@ -155,5 +173,9 @@ public class VideoDecoder {
 
   public int getHeight() {
     return height;
+  }
+
+  public double getDuration() {
+    return duration / 10E5;
   }
 }

@@ -141,7 +141,7 @@ public class RtspActivity extends AppCompatActivity
         new ArrayAdapter<>(this, R.layout.support_simple_spinner_dropdown_item);
     orientationAdapter.addAll(orientations);
     spOrientation.setAdapter(orientationAdapter);
-    spOrientation.setSelection(0);
+    spOrientation.setSelection(1);
 
     ArrayAdapter<String> resolutionAdapter =
         new ArrayAdapter<>(this, R.layout.support_simple_spinner_dropdown_item);
@@ -329,24 +329,6 @@ public class RtspActivity extends AppCompatActivity
   }
 
   @Override
-  protected void onPause() {
-    super.onPause();
-    if (rtspCamera1.isStreaming()) {
-      rtspCamera1.stopStream();
-      rtspCamera1.stopPreview();
-      bStartStop.setText(getResources().getString(R.string.start_button));
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 && rtspCamera1.isRecording()) {
-      rtspCamera1.stopRecord();
-      bRecord.setText(R.string.start_record);
-      Toast.makeText(this,
-          "file " + currentDateAndTime + ".mp4 saved in " + folder.getAbsolutePath(),
-          Toast.LENGTH_SHORT).show();
-      currentDateAndTime = "";
-    }
-  }
-
-  @Override
   public void onConnectionSuccessRtsp() {
     runOnUiThread(new Runnable() {
       @Override
@@ -430,6 +412,11 @@ public class RtspActivity extends AppCompatActivity
 
   @Override
   public void surfaceCreated(SurfaceHolder surfaceHolder) {
+    drawerLayout.openDrawer(Gravity.START);
+  }
+
+  @Override
+  public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
     rtspCamera1.startPreview();
     // optionally:
     //rtspCamera1.startPreview(Camera.CameraInfo.CAMERA_FACING_BACK);
@@ -438,12 +425,19 @@ public class RtspActivity extends AppCompatActivity
   }
 
   @Override
-  public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
-
-  }
-
-  @Override
   public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 && rtspCamera1.isRecording()) {
+      rtspCamera1.stopRecord();
+      bRecord.setText(R.string.start_record);
+      Toast.makeText(this,
+          "file " + currentDateAndTime + ".mp4 saved in " + folder.getAbsolutePath(),
+          Toast.LENGTH_SHORT).show();
+      currentDateAndTime = "";
+    }
+    if (rtspCamera1.isStreaming()) {
+      rtspCamera1.stopStream();
+      bStartStop.setText(getResources().getString(R.string.start_button));
+    }
     rtspCamera1.stopPreview();
   }
 }

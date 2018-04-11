@@ -3,13 +3,13 @@
 [![Android Arsenal](https://img.shields.io/badge/Android%20Arsenal-rtmp%20rtsp%20stream%20client%20java-green.svg?style=true)](https://android-arsenal.com/details/1/5333)
 [![Release](https://jitpack.io/v/pedroSG94/rtmp-rtsp-stream-client-java.svg)](https://jitpack.io/#pedroSG94/rtmp-rtsp-stream-client-java)
 
-Library for stream in rtmp and rtsp. All code in java.
+Library for stream in RTMP and RTSP. All code in Java.
 
 If you need a player see this project:
 
 https://github.com/pedroSG94/vlc-example-streamplayer
 
-## Wiki (Becoming)
+## Wiki
 
 https://github.com/pedroSG94/rtmp-rtsp-stream-client-java/wiki
 
@@ -37,7 +37,7 @@ allprojects {
   }
 }
 dependencies {
-  compile 'com.github.pedroSG94.rtmp-rtsp-stream-client-java:rtplibrary:1.2.8'
+  compile 'com.github.pedroSG94.rtmp-rtsp-stream-client-java:rtplibrary:1.3.7'
 }
 
 ```
@@ -49,17 +49,19 @@ dependencies {
 - [x] Encoder type buffer to buffer.
 - [x] Encoder type surface to buffer.
 - [x] RTMP/RTSP auth wowza.
-- [x] Audio noise suppressor.
+- [x] Audio mode suppressor.
 - [x] Audio echo cancellation.
 - [x] Disable/Enable video and audio while streaming.
 - [x] Switch camera while streaming.
 - [x] Change video bitrate while streaming (API 19+).
 - [X] Record MP4 file while streaming (API 18+).
 - [x] H264 and AAC hardware encoding.
+- [x] Force H264 and AAC Codec hardware/software encoding (Not recommended).
 - [x] RTSP TCP/UDP.
-- [x] Stream from MP4 file (only video, no sound, API 18+).
+- [x] Stream from video files like mp4, webm, etc (Limited by device decoders). [More info](https://github.com/pedroSG94/rtmp-rtsp-stream-client-java/wiki/Stream-from-file)
 - [x] Stream device display(API 21+).
 - [X] Set Image, Gif or Text to stream on real time.
+- [X] OpenGL real time filters. [More info](https://github.com/pedroSG94/rtmp-rtsp-stream-client-java/wiki/Real-time-filters)
 - [X] RTMPS and RTSPS
 
 ### Backlog

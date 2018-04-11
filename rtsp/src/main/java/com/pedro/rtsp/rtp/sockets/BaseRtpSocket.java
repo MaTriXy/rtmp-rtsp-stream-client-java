@@ -1,7 +1,6 @@
 package com.pedro.rtsp.rtp.sockets;
 
 import com.pedro.rtsp.utils.RtpConstants;
-import java.io.IOException;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -20,11 +19,13 @@ public abstract class BaseRtpSocket implements Runnable {
   protected long clock = 0;
   protected int seq = 0;
   protected int bufferCount, bufferIn;
+  protected boolean running;
 
   /**
    * This RTP socket implements a buffering mechanism relying on a FIFO of buffers and a Thread.
    */
   public BaseRtpSocket() {
+    running = true;
     bufferCount = 300;
     buffers = new byte[bufferCount][];
     resetFifo();
@@ -55,6 +56,13 @@ public abstract class BaseRtpSocket implements Runnable {
     bufferCommitted = new Semaphore(0);
   }
 
+  public void reset(boolean running) {
+    this.running = running;
+    bufferCommitted.drainPermits();
+    bufferRequested.drainPermits();
+    resetFifo();
+  }
+
   /** Sets the SSRC of the stream. */
   public abstract void setSSRC(int ssrc);
 
@@ -72,10 +80,18 @@ public abstract class BaseRtpSocket implements Runnable {
   /**
    * Returns an available buffer from the FIFO, it can then be modified.
    *
-   * @throws InterruptedException
    **/
-  public byte[] requestBuffer() throws InterruptedException {
-    bufferRequested.acquire();
+  public byte[] requestBuffer() {
+    try {
+      bufferRequested.acquire();
+    } catch (InterruptedException ignored) {
+      Thread.currentThread().interrupt();
+      try {
+        Thread.currentThread().join();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
     buffers[bufferIn][1] &= 0x7F;
     return buffers[bufferIn];
   }
@@ -91,17 +107,8 @@ public abstract class BaseRtpSocket implements Runnable {
     setLong(buffers[bufferIn], ts, 4, 8);
   }
 
-  public void commitBuffer() throws IOException {
-    if (thread == null) {
-      thread = new Thread(this);
-      thread.start();
-    }
-    if (++bufferIn >= bufferCount) bufferIn = 0;
-    bufferCommitted.release();
-  }
-
   /** Sends the RTP packet over the network. */
-  public void commitBuffer(int length) throws IOException {
+  public void commitBuffer(int length) {
     //Increments the sequence number.
     setLong(buffers[bufferIn], ++seq, 2, 4);
     implementCommitBuffer(length);

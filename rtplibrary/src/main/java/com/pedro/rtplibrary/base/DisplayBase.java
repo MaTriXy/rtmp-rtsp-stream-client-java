@@ -2,7 +2,6 @@ package com.pedro.rtplibrary.base;
 
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.ImageFormat;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
@@ -15,7 +14,7 @@ import com.pedro.encoder.audio.AudioEncoder;
 import com.pedro.encoder.audio.GetAacData;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
 import com.pedro.encoder.input.audio.MicrophoneManager;
-import com.pedro.encoder.input.video.GetCameraData;
+import com.pedro.encoder.utils.CodecUtil;
 import com.pedro.encoder.video.FormatVideoEncoder;
 import com.pedro.encoder.video.GetH264Data;
 import com.pedro.encoder.video.VideoEncoder;
@@ -34,8 +33,7 @@ import static android.content.Context.MEDIA_PROJECTION_SERVICE;
  * Created by pedro on 9/08/17.
  */
 @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
-public abstract class DisplayBase
-    implements GetAacData, GetCameraData, GetH264Data, GetMicrophoneData {
+public abstract class DisplayBase implements GetAacData, GetH264Data, GetMicrophoneData {
 
   protected Context context;
   private MediaProjection mediaProjection;
@@ -43,7 +41,7 @@ public abstract class DisplayBase
   protected VideoEncoder videoEncoder;
   protected MicrophoneManager microphoneManager;
   protected AudioEncoder audioEncoder;
-  private boolean streaming;
+  private boolean streaming = false;
   protected SurfaceView surfaceView;
   private boolean videoEnabled = true;
   //record
@@ -64,7 +62,6 @@ public abstract class DisplayBase
     videoEncoder = new VideoEncoder(this);
     microphoneManager = new MicrophoneManager(this);
     audioEncoder = new AudioEncoder(this);
-    streaming = false;
   }
 
   /**
@@ -92,11 +89,8 @@ public abstract class DisplayBase
    */
   public boolean prepareVideo(int width, int height, int fps, int bitrate, int rotation, int dpi) {
     this.dpi = dpi;
-    int imageFormat = ImageFormat.NV21; //supported nv21 and yv12
-    videoEncoder.setImageFormat(imageFormat);
-    boolean result = videoEncoder.prepareVideoEncoder(width, height, fps, bitrate, rotation, true,
+    return videoEncoder.prepareVideoEncoder(width, height, fps, bitrate, rotation, true, 2,
         FormatVideoEncoder.SURFACE);
-    return result;
   }
 
   protected abstract void prepareAudioRtp(boolean isStereo, int sampleRate);
@@ -130,7 +124,7 @@ public abstract class DisplayBase
    * doesn't support any configuration seated or your device hasn't a H264 encoder).
    */
   public boolean prepareVideo() {
-    return videoEncoder.prepareVideoEncoder(640, 480, 30, 1200 * 1024, 0, true,
+    return videoEncoder.prepareVideoEncoder(640, 480, 30, 1200 * 1024, 0, true, 2,
         FormatVideoEncoder.SURFACE);
   }
 
@@ -147,6 +141,15 @@ public abstract class DisplayBase
   }
 
   /**
+   * @param forceVideo force type codec used. FIRST_COMPATIBLE_FOUND, SOFTWARE, HARDWARE
+   * @param forceAudio force type codec used. FIRST_COMPATIBLE_FOUND, SOFTWARE, HARDWARE
+   */
+  public void setForce(CodecUtil.Force forceVideo, CodecUtil.Force forceAudio) {
+    videoEncoder.setForce(forceVideo);
+    audioEncoder.setForce(forceAudio);
+  }
+
+  /**
    * Start record a MP4 video. Need be called while stream.
    *
    * @param path where file will be saved.
@@ -159,6 +162,7 @@ public abstract class DisplayBase
       audioTrack = mediaMuxer.addTrack(audioFormat);
       mediaMuxer.start();
       recording = true;
+      if (videoEncoder.isRunning()) videoEncoder.reset();
     } else {
       throw new IOException("Need be called while stream");
     }
@@ -169,10 +173,12 @@ public abstract class DisplayBase
    */
   public void stopRecord() {
     recording = false;
-    canRecord = false;
     if (mediaMuxer != null) {
-      mediaMuxer.stop();
-      mediaMuxer.release();
+      if (canRecord) {
+        mediaMuxer.stop();
+        mediaMuxer.release();
+        canRecord = false;
+      }
       mediaMuxer = null;
     }
     videoTrack = -1;
@@ -339,11 +345,6 @@ public abstract class DisplayBase
   @Override
   public void inputPCMData(byte[] buffer, int size) {
     audioEncoder.inputPCMData(buffer, size);
-  }
-
-  @Override
-  public void inputYUVData(byte[] buffer) {
-    videoEncoder.inputYUVData(buffer);
   }
 
   @Override

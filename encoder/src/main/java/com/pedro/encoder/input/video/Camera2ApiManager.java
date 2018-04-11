@@ -9,6 +9,9 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.Face;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.os.Build;
 import android.os.Handler;
@@ -55,6 +58,9 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
   private boolean prepared = false;
   private int cameraId = -1;
   private Surface preview;
+  private boolean isOpenGl = false;
+  //private boolean faceDetectionSupported = false;
+  //private Integer faceDetectionMode;
 
   public Camera2ApiManager(Context context) {
     cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
@@ -64,23 +70,27 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
     this.surfaceView = surfaceView;
     this.surfaceEncoder = surface;
     prepared = true;
+    isOpenGl = false;
   }
 
   public void prepareCamera(TextureView textureView, Surface surface) {
     this.textureView = textureView;
     this.surfaceEncoder = surface;
     prepared = true;
+    isOpenGl = false;
   }
 
   public void prepareCamera(Surface surface) {
     this.surfaceEncoder = surface;
     prepared = true;
+    isOpenGl = false;
   }
 
   public void prepareCamera(SurfaceTexture surfaceTexture, int width, int height) {
     surfaceTexture.setDefaultBufferSize(width, height);
     this.surfaceEncoder = new Surface(surfaceTexture);
     prepared = true;
+    isOpenGl = true;
   }
 
   public boolean isPrepared() {
@@ -156,8 +166,9 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
       CaptureRequest.Builder builder =
           cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
       builder.addTarget(surface);
+      //setFaceDetect(builder, faceDetectionMode);
       return builder.build();
-    } catch (CameraAccessException e) {
+    } catch (CameraAccessException | IllegalStateException e) {
       Log.e(TAG, e.getMessage());
       return null;
     }
@@ -230,10 +241,39 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
       } else {
         openCameraId(1);
       }
+
+      //int[] FD = cameraCharacteristics.get(
+      //    CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES);
+      //int maxFD = cameraCharacteristics.get(CameraCharacteristics.STATISTICS_INFO_MAX_FACE_COUNT);
+      //if (FD.length > 0) {
+      //  List<Integer> fdList = new ArrayList<>();
+      //  for (int FaceD : FD) {
+      //    fdList.add(FaceD);
+      //  }
+      //  if (maxFD > 0) {
+      //    faceDetectionSupported = true;
+      //    faceDetectionMode = Collections.max(fdList);
+      //  }
+      //}
     } catch (CameraAccessException e) {
       e.printStackTrace();
     }
   }
+
+  //private void setFaceDetect(CaptureRequest.Builder requestBuilder, int faceDetectMode) {
+  //  if (faceDetectionSupported) {
+  //    requestBuilder.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE, faceDetectMode);
+  //  }
+  //}
+
+  //new CameraCaptureSession.CaptureCallback() {
+  //  @Override
+  //  public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+  //      @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
+  //    Face face[] = result.get(CaptureResult.STATISTICS_FACES);
+  //    Log.e("Pedro", "faces: " + face.length);
+  //  }
+  //}
 
   public void openCameraId(Integer cameraId) {
     this.cameraId = cameraId;
@@ -267,8 +307,11 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
         if (surfaceView != null || textureView != null) {
           cameraCaptureSession.setRepeatingBurst(Collections.singletonList(drawPreview(preview)),
               null, cameraHandler);
+        } else if (surfaceEncoder != null && isOpenGl) {
+          cameraCaptureSession.setRepeatingBurst(
+              Collections.singletonList(drawPreview(surfaceEncoder)), null, cameraHandler);
         }
-      } catch (CameraAccessException e) {
+      } catch (Exception e) {
         e.printStackTrace();
       }
     } else {
@@ -290,7 +333,6 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
 
   @Override
   public void onOpened(@NonNull CameraDevice cameraDevice) {
-
     this.cameraDevice = cameraDevice;
     startPreview(cameraDevice);
     Log.i(TAG, "camera opened");

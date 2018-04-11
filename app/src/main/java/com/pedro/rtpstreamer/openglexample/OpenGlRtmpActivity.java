@@ -4,22 +4,58 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.annotation.RequiresApi;
 import android.support.v7.app.AppCompatActivity;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.SurfaceHolder;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
+import com.pedro.encoder.input.gl.render.filters.AndroidViewFilterRender;
+import com.pedro.encoder.input.gl.render.filters.BasicDeformationFilterRender;
+import com.pedro.encoder.input.gl.render.filters.BeautyFilterRender;
+import com.pedro.encoder.input.gl.render.filters.BlurFilterRender;
+import com.pedro.encoder.input.gl.render.filters.BrightnessFilterRender;
+import com.pedro.encoder.input.gl.render.filters.CartoonFilterRender;
+import com.pedro.encoder.input.gl.render.filters.ColorFilterRender;
+import com.pedro.encoder.input.gl.render.filters.ContrastFilterRender;
+import com.pedro.encoder.input.gl.render.filters.DuotoneFilterRender;
+import com.pedro.encoder.input.gl.render.filters.EarlyBirdFilterRender;
+import com.pedro.encoder.input.gl.render.filters.EdgeDetectionFilterRender;
+import com.pedro.encoder.input.gl.render.filters.ExposureFilterRender;
+import com.pedro.encoder.input.gl.render.filters.FireFilterRender;
+import com.pedro.encoder.input.gl.render.filters.GammaFilterRender;
+import com.pedro.encoder.input.gl.render.filters.GreyScaleFilterRender;
+import com.pedro.encoder.input.gl.render.filters.HalftoneLinesFilterRender;
+import com.pedro.encoder.input.gl.render.filters.Image70sFilterRender;
+import com.pedro.encoder.input.gl.render.filters.LamoishFilterRender;
+import com.pedro.encoder.input.gl.render.filters.MoneyFilterRender;
+import com.pedro.encoder.input.gl.render.filters.NegativeFilterRender;
+import com.pedro.encoder.input.gl.render.filters.NoFilterRender;
+import com.pedro.encoder.input.gl.render.filters.PixelatedFilterRender;
+import com.pedro.encoder.input.gl.render.filters.PolygonizationFilterRender;
+import com.pedro.encoder.input.gl.render.filters.RainbowFilterRender;
+import com.pedro.encoder.input.gl.render.filters.RippleFilterRender;
+import com.pedro.encoder.input.gl.render.filters.SaturationFilterRender;
+import com.pedro.encoder.input.gl.render.filters.SepiaFilterRender;
+import com.pedro.encoder.input.gl.render.filters.SharpnessFilterRender;
+import com.pedro.encoder.input.gl.render.filters.TemperatureFilterRender;
+import com.pedro.encoder.input.gl.render.filters.ZebraFilterRender;
+import com.pedro.encoder.input.video.CameraOpenException;
 import com.pedro.encoder.utils.gl.GifStreamObject;
 import com.pedro.encoder.utils.gl.ImageStreamObject;
 import com.pedro.encoder.utils.gl.TextStreamObject;
-import com.pedro.rtpstreamer.R;
 import com.pedro.rtplibrary.rtmp.RtmpCamera1;
 import com.pedro.rtplibrary.view.OpenGlView;
+import com.pedro.rtpstreamer.R;
+import java.io.File;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import net.ossrs.rtmp.ConnectCheckerRtmp;
 
 /**
@@ -29,11 +65,16 @@ import net.ossrs.rtmp.ConnectCheckerRtmp;
  */
 @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
 public class OpenGlRtmpActivity extends AppCompatActivity
-    implements ConnectCheckerRtmp, View.OnClickListener {
+    implements ConnectCheckerRtmp, View.OnClickListener, SurfaceHolder.Callback {
 
   private RtmpCamera1 rtmpCamera1;
   private Button button;
+  private Button bRecord;
   private EditText etUrl;
+
+  private String currentDateAndTime = "";
+  private File folder = new File(Environment.getExternalStorageDirectory().getAbsolutePath()
+      + "/rtmp-rtsp-stream-client-java");
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -43,9 +84,14 @@ public class OpenGlRtmpActivity extends AppCompatActivity
     OpenGlView openGlView = findViewById(R.id.surfaceView);
     button = findViewById(R.id.b_start_stop);
     button.setOnClickListener(this);
+    bRecord = findViewById(R.id.b_record);
+    bRecord.setOnClickListener(this);
+    Button switchCamera = findViewById(R.id.switch_camera);
+    switchCamera.setOnClickListener(this);
     etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtmp);
     rtmpCamera1 = new RtmpCamera1(openGlView, this);
+    openGlView.getHolder().addCallback(this);
   }
 
   @Override
@@ -56,25 +102,124 @@ public class OpenGlRtmpActivity extends AppCompatActivity
 
   @Override
   public boolean onOptionsItemSelected(MenuItem item) {
-    if (rtmpCamera1.isStreaming()) {
-      switch (item.getItemId()) {
-        case R.id.text:
-          setTextToStream();
-          return true;
-        case R.id.image:
-          setImageToStream();
-          return true;
-        case R.id.gif:
-          setGifToStream();
-          return true;
-        case R.id.clear:
-          rtmpCamera1.clearStreamObject();
-          return true;
-        default:
-          return false;
-      }
-    } else {
-      return false;
+    switch (item.getItemId()) {
+      case R.id.e_d_fxaa:
+        Toast.makeText(this, "FXAA " + (rtmpCamera1.isAAEnabled() ? " enabled" : "disabled"),
+            Toast.LENGTH_SHORT).show();
+        rtmpCamera1.enableAA(!rtmpCamera1.isAAEnabled());
+        return true;
+      //stream object
+      case R.id.text:
+        setTextToStream();
+        return true;
+      case R.id.image:
+        setImageToStream();
+        return true;
+      case R.id.gif:
+        setGifToStream();
+        return true;
+      case R.id.clear:
+        rtmpCamera1.clearStreamObject();
+        return true;
+      //filters. NOTE: You can change filter values on fly without re set the filter.
+      // Example:
+      // ColorFilterRender color = new ColorFilterRender()
+      // rtmpCamera1.setFilter(color);
+      // color.setRGBColor(255, 0, 0); //red tint
+      case R.id.no_filter:
+        rtmpCamera1.setFilter(new NoFilterRender());
+        return true;
+      case R.id.android_view:
+        AndroidViewFilterRender androidViewFilterRender = new AndroidViewFilterRender();
+        androidViewFilterRender.setView(findViewById(R.id.activity_example_rtmp));
+        rtmpCamera1.setFilter(androidViewFilterRender);
+        return true;
+      case R.id.basic_deformation:
+        rtmpCamera1.setFilter(new BasicDeformationFilterRender());
+        return true;
+      case R.id.beauty:
+        rtmpCamera1.setFilter(new BeautyFilterRender());
+        return true;
+      case R.id.blur:
+        rtmpCamera1.setFilter(new BlurFilterRender());
+        return true;
+      case R.id.brightness:
+        rtmpCamera1.setFilter(new BrightnessFilterRender());
+        return true;
+      case R.id.cartoon:
+        rtmpCamera1.setFilter(new CartoonFilterRender());
+        return true;
+      case R.id.color:
+        rtmpCamera1.setFilter(new ColorFilterRender());
+        return true;
+      case R.id.contrast:
+        rtmpCamera1.setFilter(new ContrastFilterRender());
+        return true;
+      case R.id.duotone:
+        rtmpCamera1.setFilter(new DuotoneFilterRender());
+        return true;
+      case R.id.early_bird:
+        rtmpCamera1.setFilter(new EarlyBirdFilterRender());
+        return true;
+      case R.id.edge_detection:
+        rtmpCamera1.setFilter(new EdgeDetectionFilterRender());
+        return true;
+      case R.id.exposure:
+        rtmpCamera1.setFilter(new ExposureFilterRender());
+        return true;
+      case R.id.fire:
+        rtmpCamera1.setFilter(new FireFilterRender());
+        return true;
+      case R.id.gamma:
+        rtmpCamera1.setFilter(new GammaFilterRender());
+        return true;
+      case R.id.grey_scale:
+        rtmpCamera1.setFilter(new GreyScaleFilterRender());
+        return true;
+      case R.id.halftone_lines:
+        rtmpCamera1.setFilter(new HalftoneLinesFilterRender());
+        return true;
+      case R.id.image_70s:
+        rtmpCamera1.setFilter(new Image70sFilterRender());
+        return true;
+      case R.id.lamoish:
+        rtmpCamera1.setFilter(new LamoishFilterRender());
+        return true;
+      case R.id.money:
+        rtmpCamera1.setFilter(new MoneyFilterRender());
+        return true;
+      case R.id.negative:
+        rtmpCamera1.setFilter(new NegativeFilterRender());
+        return true;
+      case R.id.pixelated:
+        rtmpCamera1.setFilter(new PixelatedFilterRender());
+        return true;
+      case R.id.polygonization:
+        rtmpCamera1.setFilter(new PolygonizationFilterRender());
+        return true;
+      case R.id.rainbow:
+        rtmpCamera1.setFilter(new RainbowFilterRender());
+        return true;
+      case R.id.ripple:
+        rtmpCamera1.setFilter(new RippleFilterRender());
+        return true;
+      case R.id.saturation:
+        rtmpCamera1.setFilter(new SaturationFilterRender());
+        return true;
+      case R.id.sepia:
+        rtmpCamera1.setFilter(new SepiaFilterRender());
+        return true;
+      case R.id.sharpness:
+        rtmpCamera1.setFilter(new SharpnessFilterRender());
+        return true;
+      case R.id.temperature:
+        rtmpCamera1.setFilter(new TemperatureFilterRender());
+        return true;
+      case R.id.zebra:
+        rtmpCamera1.setFilter(new ZebraFilterRender());
+        return true;
+      default:
+        return false;
     }
   }
 
@@ -126,7 +271,6 @@ public class OpenGlRtmpActivity extends AppCompatActivity
         Toast.makeText(OpenGlRtmpActivity.this, "Connection failed. " + reason, Toast.LENGTH_SHORT)
             .show();
         rtmpCamera1.stopStream();
-        rtmpCamera1.stopPreview();
         button.setText(R.string.start_button);
       }
     });
@@ -164,27 +308,82 @@ public class OpenGlRtmpActivity extends AppCompatActivity
 
   @Override
   public void onClick(View view) {
-    if (!rtmpCamera1.isStreaming()) {
-      if (rtmpCamera1.prepareAudio() && rtmpCamera1.prepareVideo()) {
-        button.setText(R.string.stop_button);
-        rtmpCamera1.startStream(etUrl.getText().toString());
-      } else {
-        Toast.makeText(this, "Error preparing stream, This device cant do it", Toast.LENGTH_SHORT)
-            .show();
-      }
-    } else {
-      button.setText(R.string.start_button);
-      rtmpCamera1.stopStream();
-      rtmpCamera1.stopPreview();
+    switch (view.getId()) {
+      case R.id.b_start_stop:
+        if (!rtmpCamera1.isStreaming()) {
+          if (rtmpCamera1.prepareAudio() && rtmpCamera1.prepareVideo()) {
+            button.setText(R.string.stop_button);
+            rtmpCamera1.startStream(etUrl.getText().toString());
+          } else {
+            Toast.makeText(this, "Error preparing stream, This device cant do it",
+                Toast.LENGTH_SHORT).show();
+          }
+        } else {
+          button.setText(R.string.start_button);
+          rtmpCamera1.stopStream();
+        }
+        break;
+      case R.id.switch_camera:
+        try {
+          rtmpCamera1.switchCamera();
+        } catch (CameraOpenException e) {
+          Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+        break;
+      case R.id.b_record:
+        if (!rtmpCamera1.isRecording()) {
+          try {
+            if (!folder.exists()) {
+              folder.mkdir();
+            }
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss");
+            currentDateAndTime = sdf.format(new Date());
+            rtmpCamera1.startRecord(folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
+            bRecord.setText(R.string.stop_record);
+            Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+          } catch (IOException e) {
+            rtmpCamera1.stopRecord();
+            bRecord.setText(R.string.start_record);
+            Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
+          }
+        } else {
+          rtmpCamera1.stopRecord();
+          bRecord.setText(R.string.start_record);
+          Toast.makeText(this,
+              "file " + currentDateAndTime + ".mp4 saved in " + folder.getAbsolutePath(),
+              Toast.LENGTH_SHORT).show();
+          currentDateAndTime = "";
+        }
+        break;
+      default:
+        break;
     }
   }
 
   @Override
-  protected void onPause() {
-    super.onPause();
+  public void surfaceCreated(SurfaceHolder surfaceHolder) {
+
+  }
+
+  @Override
+  public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
+    rtmpCamera1.startPreview();
+  }
+
+  @Override
+  public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
+    if (rtmpCamera1.isRecording()) {
+      rtmpCamera1.stopRecord();
+      bRecord.setText(R.string.start_record);
+      Toast.makeText(this,
+          "file " + currentDateAndTime + ".mp4 saved in " + folder.getAbsolutePath(),
+          Toast.LENGTH_SHORT).show();
+      currentDateAndTime = "";
+    }
     if (rtmpCamera1.isStreaming()) {
       rtmpCamera1.stopStream();
-      rtmpCamera1.stopPreview();
+      button.setText(getResources().getString(R.string.start_button));
     }
+    rtmpCamera1.stopPreview();
   }
 }

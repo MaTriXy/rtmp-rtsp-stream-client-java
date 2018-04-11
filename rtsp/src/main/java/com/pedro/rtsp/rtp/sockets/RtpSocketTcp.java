@@ -61,7 +61,6 @@ public class RtpSocketTcp extends BaseRtpSocket implements Runnable {
       Log.e(TAG, "TCP send error: ", e);
       connectCheckerRtsp.onConnectionFailedRtsp("Error send packet, " + e.getMessage());
     }
-
     thread = null;
     resetFifo();
     senderReportTcp.reset();
@@ -69,13 +68,15 @@ public class RtpSocketTcp extends BaseRtpSocket implements Runnable {
 
   private void sendTCP() throws IOException {
     synchronized (outputStream) {
-      int len = lengths[bufferOut];
-      tcpHeader[2] = (byte) (len >> 8);
-      tcpHeader[3] = (byte) (len & 0xFF);
-      outputStream.write(tcpHeader);
-      outputStream.write(buffers[bufferOut], 0, len);
-      outputStream.flush();
-      Log.i(TAG, "send packet, " + len + " Size");
+      if (running) {
+        int len = lengths[bufferOut];
+        tcpHeader[2] = (byte) (len >> 8);
+        tcpHeader[3] = (byte) (len & 0xFF);
+        outputStream.write(tcpHeader);
+        outputStream.write(buffers[bufferOut], 0, len);
+        outputStream.flush();
+        Log.i(TAG, "send packet, " + len + " Size");
+      }
     }
   }
 }
