@@ -3,7 +3,6 @@ package com.pedro.rtplibrary.base;
 import android.content.Context;
 import android.graphics.ImageFormat;
 import android.graphics.PointF;
-import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
@@ -11,7 +10,6 @@ import android.media.MediaMuxer;
 import android.os.Build;
 import android.support.annotation.RequiresApi;
 import android.util.Log;
-import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import com.pedro.encoder.audio.AudioEncoder;
@@ -33,6 +31,7 @@ import com.pedro.encoder.utils.gl.TranslateTo;
 import com.pedro.encoder.video.FormatVideoEncoder;
 import com.pedro.encoder.video.GetH264Data;
 import com.pedro.encoder.video.VideoEncoder;
+import com.pedro.rtplibrary.OffScreenGlThread;
 import com.pedro.rtplibrary.view.LightOpenGlView;
 import com.pedro.rtplibrary.view.OpenGlView;
 import com.pedro.rtplibrary.view.OpenGlViewBase;
@@ -54,8 +53,7 @@ import java.util.List;
  */
 
 public abstract class Camera1Base
-    implements GetAacData, GetCameraData, GetH264Data, GetMicrophoneData, SurfaceHolder.Callback,
-    TextureView.SurfaceTextureListener {
+    implements GetAacData, GetCameraData, GetH264Data, GetMicrophoneData {
 
   private static final String TAG = "Camera1Base";
 
@@ -66,8 +64,6 @@ public abstract class Camera1Base
   protected AudioEncoder audioEncoder;
   private OpenGlView openGlView;
   private OpenGlViewBase openGlViewBase;
-  private SurfaceView surfaceView;
-  private TextureView textureView;
   private boolean streaming = false;
   private boolean videoEnabled = true;
   //record
@@ -79,10 +75,10 @@ public abstract class Camera1Base
   private boolean onPreview = false;
   private MediaFormat videoFormat;
   private MediaFormat audioFormat;
-  private boolean onChangeOrientation = false;
+  private boolean isBackground = false;
+  private OffScreenGlThread offScreenGlThread;
 
   public Camera1Base(SurfaceView surfaceView) {
-    this.surfaceView = surfaceView;
     context = surfaceView.getContext();
     cameraManager = new Camera1ApiManager(surfaceView, this);
     videoEncoder = new VideoEncoder(this);
@@ -91,7 +87,6 @@ public abstract class Camera1Base
   }
 
   public Camera1Base(TextureView textureView) {
-    this.textureView = textureView;
     context = textureView.getContext();
     cameraManager = new Camera1ApiManager(textureView, this);
     videoEncoder = new VideoEncoder(this);
@@ -123,60 +118,13 @@ public abstract class Camera1Base
     audioEncoder = new AudioEncoder(this);
   }
 
-  public void refreshView(SurfaceView surfaceView) {
-    surfaceView.getHolder().addCallback(this);
-    onChangeOrientation();
-    cameraManager = new Camera1ApiManager(surfaceView, this);
-  }
-
-  public void refreshView(TextureView textureView) {
-    textureView.setSurfaceTextureListener(this);
-    onChangeOrientation();
-    cameraManager = new Camera1ApiManager(textureView, this);
-  }
-
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
-  public void refreshView(OpenGlView openGlView) {
-    openGlView.rotated();
-    openGlView.getHolder().addCallback(this);
-    onChangeOrientation();
-    this.openGlView = openGlView;
-    this.openGlViewBase = openGlView;
-  }
-
-  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
-  public void refreshView(LightOpenGlView lightOpenGlView) {
-    lightOpenGlView.rotated();
-    lightOpenGlView.getHolder().addCallback(this);
-    onChangeOrientation();
-    this.openGlViewBase = lightOpenGlView;
-  }
-
-  public boolean isOnChangeOrientation() {
-    return onChangeOrientation;
-  }
-
-  public void setOnChangeOrientation(boolean onChangeOrientation) {
-    this.onChangeOrientation = onChangeOrientation;
-  }
-
-  private void onChangeOrientation() {
-    if (openGlViewBase != null && Build.VERSION.SDK_INT >= 18) {
-      openGlViewBase.removeMediaCodecSurface();
-      openGlViewBase.stopGlThread();
-    }
-    cameraManager.stop();
-  }
-
-  private void onChanged() {
-    prepareGlView();
-    if (surfaceView != null || textureView != null) {
-      cameraManager.prepareCamera(videoEncoder.getWidth(), videoEncoder.getHeight(),
-          videoEncoder.getFps(), ImageFormat.NV21);
-    }
-    int orientation = (context.getResources().getConfiguration().orientation == 1) ? 90 : 0;
-    cameraManager.setPreviewOrientation(orientation);
-    cameraManager.start();
+  public Camera1Base(Context context) {
+    this.context = context;
+    this.isBackground = true;
+    videoEncoder = new VideoEncoder(this);
+    microphoneManager = new MicrophoneManager(this);
+    audioEncoder = new AudioEncoder(this);
   }
 
   /**
@@ -211,7 +159,7 @@ public abstract class Camera1Base
       onPreview = true;
     }
     int imageFormat = ImageFormat.NV21; //supported nv21 and yv12
-    if (openGlViewBase == null) {
+    if (openGlViewBase == null && !isBackground) {
       cameraManager.prepareCamera(width, height, fps, imageFormat);
       return videoEncoder.prepareVideoEncoder(width, height, fps, bitrate, rotation,
           hardwareRotation, iFrameInterval, FormatVideoEncoder.YUV420Dynamical);
@@ -264,7 +212,7 @@ public abstract class Camera1Base
       stopPreview();
       onPreview = true;
     }
-    if (openGlViewBase == null) {
+    if (openGlViewBase == null && !isBackground) {
       cameraManager.prepareCamera();
       return videoEncoder.prepareVideoEncoder();
     } else {
@@ -353,9 +301,22 @@ public abstract class Camera1Base
    * @param height of preview in px.
    */
   public void startPreview(@Camera1Facing int cameraFacing, int width, int height) {
-    if (!isStreaming() && !onPreview) {
+    if (!isStreaming() && !onPreview && !isBackground) {
       if (openGlViewBase != null && Build.VERSION.SDK_INT >= 18) {
-        openGlViewBase.setEncoderSize(videoEncoder.getWidth(), videoEncoder.getHeight());
+        boolean isPortrait = context.getResources().getConfiguration().orientation == 1;
+        if (isPortrait) {
+          if (width == 0 || height == 0) {
+            openGlViewBase.setEncoderSize(videoEncoder.getHeight(), videoEncoder.getWidth());
+          } else {
+            openGlViewBase.setEncoderSize(height, width);
+          }
+        } else {
+          if (width == 0 || height == 0) {
+            openGlViewBase.setEncoderSize(videoEncoder.getWidth(), videoEncoder.getHeight());
+          } else {
+            openGlViewBase.setEncoderSize(width, height);
+          }
+        }
         openGlViewBase.startGLThread(false);
         cameraManager.setSurfaceTexture(openGlViewBase.getSurfaceTexture());
       }
@@ -364,6 +325,9 @@ public abstract class Camera1Base
         cameraManager.start(cameraFacing);
       } else {
         cameraManager.start(cameraFacing, width, height);
+      }
+      if (openGlViewBase != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+        openGlViewBase.setCameraFace(cameraManager.isFrontCamera());
       }
       onPreview = true;
     } else {
@@ -408,7 +372,7 @@ public abstract class Camera1Base
    * You need call it after @stopStream to release camera properly if you will close activity.
    */
   public void stopPreview() {
-    if (!isStreaming() && onPreview) {
+    if (!isStreaming() && onPreview && !isBackground) {
       if (openGlViewBase != null && Build.VERSION.SDK_INT >= 18) {
         openGlViewBase.stopGlThread();
       }
@@ -449,6 +413,9 @@ public abstract class Camera1Base
     videoEncoder.start();
     audioEncoder.start();
     cameraManager.start();
+    if (openGlViewBase != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+      openGlViewBase.setCameraFace(cameraManager.isFrontCamera());
+    }
     microphoneManager.start();
     streaming = true;
     onPreview = true;
@@ -469,6 +436,23 @@ public abstract class Camera1Base
       cameraManager.setSurfaceTexture(openGlViewBase.getSurfaceTexture());
       cameraManager.prepareCamera(videoEncoder.getWidth(), videoEncoder.getHeight(),
           videoEncoder.getFps(), ImageFormat.NV21);
+    } else if (isBackground && Build.VERSION.SDK_INT >= 18) {
+      if (videoEncoder.getRotation() == 90 || videoEncoder.getRotation() == 270) {
+        offScreenGlThread =
+            new OffScreenGlThread(context, videoEncoder.getHeight(), videoEncoder.getWidth());
+      } else {
+        offScreenGlThread =
+            new OffScreenGlThread(context, videoEncoder.getWidth(), videoEncoder.getHeight());
+      }
+      offScreenGlThread.init();
+      offScreenGlThread.start(false);
+      if (videoEncoder.getInputSurface() != null) {
+        offScreenGlThread.addMediaCodecSurface(videoEncoder.getInputSurface());
+      }
+      cameraManager = new Camera1ApiManager(offScreenGlThread.getSurfaceTexture(), context);
+      cameraManager.setSurfaceTexture(offScreenGlThread.getSurfaceTexture());
+      cameraManager.prepareCamera(videoEncoder.getWidth(), videoEncoder.getHeight(),
+          videoEncoder.getFps(), ImageFormat.NV21);
     }
   }
 
@@ -484,6 +468,10 @@ public abstract class Camera1Base
     audioEncoder.stop();
     if (openGlViewBase != null && Build.VERSION.SDK_INT >= 18) {
       openGlViewBase.removeMediaCodecSurface();
+    } else if (offScreenGlThread != null && Build.VERSION.SDK_INT >= 18) {
+      offScreenGlThread.removeMediaCodecSurface();
+      offScreenGlThread.stop();
+      cameraManager.stop();
     }
     streaming = false;
   }
@@ -563,6 +551,12 @@ public abstract class Camera1Base
   public void switchCamera() throws CameraOpenException {
     if (isStreaming() || onPreview) {
       cameraManager.switchCamera();
+      if (openGlViewBase != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+        openGlViewBase.setCameraFace(cameraManager.isFrontCamera());
+      } else if (offScreenGlThread != null
+          && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+        offScreenGlThread.setCameraFace(cameraManager.isFrontCamera());
+      }
     }
   }
 
@@ -570,6 +564,8 @@ public abstract class Camera1Base
   public void setFilter(BaseFilterRender baseFilterRender) {
     if (openGlView != null) {
       openGlView.setFilter(baseFilterRender);
+    } else if (offScreenGlThread != null) {
+        offScreenGlThread.setFilter(baseFilterRender);
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set a gif");
     }
@@ -586,6 +582,8 @@ public abstract class Camera1Base
   public void setGifStreamObject(GifStreamObject gifStreamObject) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setGif(gifStreamObject);
+    } else if (offScreenGlThread != null) {
+      offScreenGlThread.setGif(gifStreamObject);
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set a gif");
     }
@@ -602,6 +600,8 @@ public abstract class Camera1Base
   public void setImageStreamObject(ImageStreamObject imageStreamObject) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setImage(imageStreamObject);
+    } else if (offScreenGlThread != null) {
+      offScreenGlThread.setImage(imageStreamObject);
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set an image");
     }
@@ -618,6 +618,8 @@ public abstract class Camera1Base
   public void setTextStreamObject(TextStreamObject textStreamObject) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setText(textStreamObject);
+    } else if (offScreenGlThread != null) {
+      offScreenGlThread.setText(textStreamObject);
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set a text");
     }
@@ -632,6 +634,8 @@ public abstract class Camera1Base
   public void clearStreamObject() throws RuntimeException {
     if (openGlView != null) {
       openGlView.clear();
+    } else if (offScreenGlThread != null) {
+      offScreenGlThread.clear();
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set a text");
     }
@@ -647,6 +651,8 @@ public abstract class Camera1Base
   public void setAlphaStreamObject(float alpha) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setStreamObjectAlpha(alpha);
+    } else if (offScreenGlThread != null) {
+      offScreenGlThread.setStreamObjectAlpha(alpha);
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set an alpha");
     }
@@ -663,6 +669,8 @@ public abstract class Camera1Base
   public void setSizeStreamObject(float sizeX, float sizeY) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setStreamObjectSize(sizeX, sizeY);
+    } else if (offScreenGlThread != null) {
+      offScreenGlThread.setStreamObjectSize(sizeX, sizeY);
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set a size");
     }
@@ -679,6 +687,8 @@ public abstract class Camera1Base
   public void setPositionStreamObject(float x, float y) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setStreamObjectPosition(x, y);
+    } else if (offScreenGlThread != null) {
+      offScreenGlThread.setStreamObjectPosition(x, y);
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set a position");
     }
@@ -694,6 +704,8 @@ public abstract class Camera1Base
   public void setPositionStreamObject(TranslateTo translateTo) throws RuntimeException {
     if (openGlView != null) {
       openGlView.setStreamObjectPosition(translateTo);
+    } else if (offScreenGlThread != null) {
+      offScreenGlThread.setStreamObjectPosition(translateTo);
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set a position");
     }
@@ -709,6 +721,8 @@ public abstract class Camera1Base
   public void enableAA(boolean AAEnabled) throws RuntimeException {
     if (openGlView != null) {
       openGlView.enableAA(AAEnabled);
+    } else if (offScreenGlThread != null) {
+      offScreenGlThread.enableAA(AAEnabled);
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set a position");
     }
@@ -718,6 +732,8 @@ public abstract class Camera1Base
   public boolean isAAEnabled() throws RuntimeException {
     if (openGlView != null) {
       return openGlView.isAAEnabled();
+    } else if (offScreenGlThread != null) {
+      return offScreenGlThread.isAAEnabled();
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to set a position");
     }
@@ -733,6 +749,8 @@ public abstract class Camera1Base
   public PointF getSizeStreamObject() throws RuntimeException {
     if (openGlView != null) {
       return openGlView.getScale();
+    } else if (offScreenGlThread != null) {
+      return offScreenGlThread.getScale();
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to get position");
     }
@@ -748,6 +766,8 @@ public abstract class Camera1Base
   public PointF getPositionStreamObject() throws RuntimeException {
     if (openGlView != null) {
       return openGlView.getPosition();
+    } else if (offScreenGlThread != null) {
+      return offScreenGlThread.getPosition();
     } else {
       throw new RuntimeException("You must use OpenGlView in the constructor to get scale");
     }
@@ -854,39 +874,5 @@ public abstract class Camera1Base
   @Override
   public void onAudioFormat(MediaFormat mediaFormat) {
     audioFormat = mediaFormat;
-  }
-
-  @Override
-  public void surfaceCreated(SurfaceHolder surfaceHolder) {
-
-  }
-
-  @Override
-  public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
-    if (isOnChangeOrientation()) onChanged();
-  }
-
-  @Override
-  public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
-  }
-
-  @Override
-  public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int i, int i1) {
-
-  }
-
-  @Override
-  public void onSurfaceTextureSizeChanged(SurfaceTexture surfaceTexture, int i, int i1) {
-    if (isOnChangeOrientation()) onChanged();
-  }
-
-  @Override
-  public boolean onSurfaceTextureDestroyed(SurfaceTexture surfaceTexture) {
-    return false;
-  }
-
-  @Override
-  public void onSurfaceTextureUpdated(SurfaceTexture surfaceTexture) {
-
   }
 }
