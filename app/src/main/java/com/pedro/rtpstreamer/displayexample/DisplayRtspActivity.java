@@ -1,9 +1,12 @@
 package com.pedro.rtpstreamer.displayexample;
 
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.annotation.RequiresApi;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
@@ -11,10 +14,14 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
-
 import com.pedro.rtplibrary.rtsp.RtspDisplay;
 import com.pedro.rtpstreamer.R;
 import com.pedro.rtsp.utils.ConnectCheckerRtsp;
+import java.io.File;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * More documentation see:
@@ -25,21 +32,69 @@ import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 public class DisplayRtspActivity extends AppCompatActivity
     implements ConnectCheckerRtsp, View.OnClickListener {
 
-  private RtspDisplay rtspDisplay;
+  private static RtspDisplay rtspDisplay;
   private Button button;
+  private Button bRecord;
   private EditText etUrl;
-  private final int REQUEST_CODE = 179;
+  private final int REQUEST_CODE = 179; //random num
+
+  private String currentDateAndTime = "";
+  private File folder = new File(Environment.getExternalStorageDirectory().getAbsolutePath()
+      + "/rtmp-rtsp-stream-client-java");
+  private NotificationManager notificationManager;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     setContentView(R.layout.activity_display);
+    notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
     button = findViewById(R.id.b_start_stop);
     button.setOnClickListener(this);
+    bRecord = findViewById(R.id.b_record);
+    bRecord.setOnClickListener(this);
     etUrl = findViewById(R.id.et_rtp_url);
-    etUrl.setHint(R.string.hint_rtsp);
-    rtspDisplay = new RtspDisplay(this, this);
+    etUrl.setHint(R.string.hint_rtmp);
+    rtspDisplay = getInstance();
+
+    if (rtspDisplay.isStreaming()) {
+      button.setText(R.string.stop_button);
+    } else {
+      button.setText(R.string.start_button);
+    }
+    if (rtspDisplay.isRecording()) {
+      bRecord.setText(R.string.stop_record);
+    } else {
+      bRecord.setText(R.string.start_record);
+    }
+  }
+
+  private RtspDisplay getInstance() {
+    if (rtspDisplay == null) {
+      return new RtspDisplay(this, false, this);
+    } else {
+      return rtspDisplay;
+    }
+  }
+
+  /**
+   * This notification is to solve MediaProjection problem that only render surface if something changed.
+   * It could produce problem in some server like in Youtube that need send video and audio all time to work.
+   */
+  private void initNotification() {
+    Notification.Builder notificationBuilder =
+        new Notification.Builder(this).setSmallIcon(R.drawable.notification_anim)
+            .setContentTitle("Streaming")
+            .setContentText("Display mode stream")
+            .setTicker("Stream in progress");
+    notificationBuilder.setAutoCancel(true);
+    if (notificationManager != null) notificationManager.notify(1234, notificationBuilder.build());
+  }
+
+  private void stopNotification() {
+    if (notificationManager != null) {
+      notificationManager.cancel(1234);
+    }
   }
 
   @Override
@@ -59,6 +114,7 @@ public class DisplayRtspActivity extends AppCompatActivity
       public void run() {
         Toast.makeText(DisplayRtspActivity.this, "Connection failed. " + reason, Toast.LENGTH_SHORT)
             .show();
+        stopNotification();
         rtspDisplay.stopStream();
         button.setText(R.string.start_button);
       }
@@ -99,6 +155,7 @@ public class DisplayRtspActivity extends AppCompatActivity
   protected void onActivityResult(int requestCode, int resultCode, Intent data) {
     if (requestCode == REQUEST_CODE && resultCode == Activity.RESULT_OK) {
       if (rtspDisplay.prepareAudio() && rtspDisplay.prepareVideo()) {
+        initNotification();
         rtspDisplay.startStream(etUrl.getText().toString(), resultCode, data);
       } else {
         Toast.makeText(this, "Error preparing stream, This device cant do it", Toast.LENGTH_SHORT)
@@ -111,12 +168,52 @@ public class DisplayRtspActivity extends AppCompatActivity
 
   @Override
   public void onClick(View view) {
-    if (!rtspDisplay.isStreaming()) {
-      button.setText(R.string.stop_button);
-      startActivityForResult(rtspDisplay.sendIntent(), REQUEST_CODE);
-    } else {
-      button.setText(R.string.start_button);
-      rtspDisplay.stopStream();
+    switch (view.getId()) {
+      case R.id.b_start_stop:
+        if (!rtspDisplay.isStreaming()) {
+          button.setText(R.string.stop_button);
+          startActivityForResult(rtspDisplay.sendIntent(), REQUEST_CODE);
+        } else {
+          if (rtspDisplay.isRecording()) {
+            rtspDisplay.stopRecord();
+            bRecord.setText(R.string.start_record);
+            Toast.makeText(this,
+                "file " + currentDateAndTime + ".mp4 saved in " + folder.getAbsolutePath(),
+                Toast.LENGTH_SHORT).show();
+            currentDateAndTime = "";
+          }
+          button.setText(R.string.start_button);
+          stopNotification();
+          rtspDisplay.stopStream();
+        }
+        break;
+      case R.id.b_record:
+        if (!rtspDisplay.isRecording()) {
+          try {
+            if (!folder.exists()) {
+              folder.mkdir();
+            }
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault());
+            currentDateAndTime = sdf.format(new Date());
+            rtspDisplay.startRecord(folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
+            bRecord.setText(R.string.stop_record);
+            Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+          } catch (IOException e) {
+            rtspDisplay.stopRecord();
+            bRecord.setText(R.string.start_record);
+            Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
+          }
+        } else {
+          rtspDisplay.stopRecord();
+          bRecord.setText(R.string.start_record);
+          Toast.makeText(this,
+              "file " + currentDateAndTime + ".mp4 saved in " + folder.getAbsolutePath(),
+              Toast.LENGTH_SHORT).show();
+          currentDateAndTime = "";
+        }
+        break;
+      default:
+        break;
     }
   }
 }

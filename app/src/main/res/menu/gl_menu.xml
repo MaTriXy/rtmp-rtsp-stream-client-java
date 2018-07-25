@@ -128,8 +128,16 @@
           android:title="@string/rainbow"
           />
       <item
+          android:id="@+id/rgb_saturate"
+          android:title="@string/rgb_saturate"
+          />
+      <item
           android:id="@+id/ripple"
           android:title="@string/ripple"
+          />
+      <item
+          android:id="@+id/rotation"
+          android:title="@string/rotation"
           />
       <item
           android:id="@+id/saturation"
@@ -142,6 +150,10 @@
       <item
           android:id="@+id/sharpness"
           android:title="@string/sharpness"
+          />
+      <item
+          android:id="@+id/surface_filter"
+          android:title="@string/surface_filter"
           />
       <item
           android:id="@+id/temperature"

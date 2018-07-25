@@ -25,7 +25,6 @@ import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.Toast;
 import com.pedro.encoder.input.video.CameraOpenException;
-import com.pedro.encoder.input.video.EffectManager;
 import com.pedro.rtplibrary.rtmp.RtmpCamera1;
 import com.pedro.rtpstreamer.R;
 import java.io.File;
@@ -34,6 +33,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import net.ossrs.rtmp.ConnectCheckerRtmp;
 
 /**
@@ -185,24 +185,6 @@ public class RtmpActivity extends AppCompatActivity
           drawerLayout.closeDrawer(Gravity.START);
         }
         return true;
-      case R.id.clear:
-        rtmpCamera1.setEffect(EffectManager.CLEAR);
-        return true;
-      case R.id.grey_scale:
-        rtmpCamera1.setEffect(EffectManager.GREYSCALE);
-        return true;
-      case R.id.sepia:
-        rtmpCamera1.setEffect(EffectManager.SEPIA);
-        return true;
-      case R.id.negative:
-        rtmpCamera1.setEffect(EffectManager.NEGATIVE);
-        return true;
-      case R.id.aqua:
-        rtmpCamera1.setEffect(EffectManager.AQUA);
-        return true;
-      case R.id.posterize:
-        rtmpCamera1.setEffect(EffectManager.POSTERIZE);
-        return true;
       case R.id.microphone:
         if (!rtmpCamera1.isAudioMuted()) {
           item.setIcon(getResources().getDrawable(R.drawable.icon_microphone_off));
@@ -241,7 +223,9 @@ public class RtmpActivity extends AppCompatActivity
           }
           int width = resolution.width;
           int height = resolution.height;
-          if (rtmpCamera1.prepareVideo(width, height, Integer.parseInt(etFps.getText().toString()),
+          if (rtmpCamera1.isRecording()
+              || rtmpCamera1.prepareVideo(width, height,
+              Integer.parseInt(etFps.getText().toString()),
               Integer.parseInt(etVideoBitrate.getText().toString()) * 1024,
               cbHardwareRotation.isChecked(), orientations[spOrientation.getSelectedItemPosition()])
               && rtmpCamera1.prepareAudio(
@@ -272,11 +256,24 @@ public class RtmpActivity extends AppCompatActivity
               if (!folder.exists()) {
                 folder.mkdir();
               }
-              SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss");
+              SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault());
               currentDateAndTime = sdf.format(new Date());
-              rtmpCamera1.startRecord(folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
-              bRecord.setText(R.string.stop_record);
-              Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+              if (!rtmpCamera1.isStreaming()) {
+                if (rtmpCamera1.prepareAudio() && rtmpCamera1.prepareVideo()) {
+                  rtmpCamera1.startRecord(
+                      folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
+                  bRecord.setText(R.string.stop_record);
+                  Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+                } else {
+                  Toast.makeText(this, "Error preparing stream, This device cant do it",
+                      Toast.LENGTH_SHORT).show();
+                }
+              } else {
+                rtmpCamera1.startRecord(
+                    folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
+                bRecord.setText(R.string.stop_record);
+                Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+              }
             } catch (IOException e) {
               rtmpCamera1.stopRecord();
               bRecord.setText(R.string.start_record);

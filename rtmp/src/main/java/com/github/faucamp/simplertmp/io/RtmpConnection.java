@@ -29,8 +29,6 @@ import java.net.Socket;
 import java.net.SocketAddress;
 import java.net.SocketException;
 import java.util.Random;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.ossrs.rtmp.ConnectCheckerRtmp;
@@ -45,9 +43,7 @@ public class RtmpConnection implements RtmpPublisher {
 
   private static final String TAG = "RtmpConnection";
   private static final Pattern rtmpUrlPattern =
-      Pattern.compile("^rtmp://([^/:]+)(:(\\d+))*/([^/]+)(/(.*))*$");
-  private static final Pattern rtmpsUrlPattern =
-      Pattern.compile("^rtmps://([^/:]+)(:(\\d+))*/([^/]+)(/(.*))*$");
+      Pattern.compile("^rtmps?://([^/:]+)(?::(\\d+))*/([^/]+)/?([^/]*)$");
 
   private int port;
   private String host;
@@ -102,28 +98,22 @@ public class RtmpConnection implements RtmpPublisher {
   @Override
   public boolean connect(String url) {
     Matcher rtmpMatcher = rtmpUrlPattern.matcher(url);
-    Matcher rtmpsMatcher = rtmpsUrlPattern.matcher(url);
-    Matcher matcher;
     if (rtmpMatcher.matches()) {
-      matcher = rtmpMatcher;
-      tlsEnabled = false;
-    } else if (rtmpsMatcher.matches()) {
-      matcher = rtmpsMatcher;
-      tlsEnabled = true;
+      tlsEnabled = rtmpMatcher.group(0).startsWith("rtmps");
     } else {
       connectCheckerRtmp.onConnectionFailedRtmp(
           "Endpoint malformed, should be: rtmp://ip:port/appname/streamname");
       return false;
     }
 
-    tcUrl = url.substring(0, url.lastIndexOf('/'));
     swfUrl = "";
     pageUrl = "";
-    host = matcher.group(1);
-    String portStr = matcher.group(3);
+    host = rtmpMatcher.group(1);
+    String portStr = rtmpMatcher.group(2);
     port = portStr != null ? Integer.parseInt(portStr) : 1935;
-    appName = matcher.group(4);
-    streamName = matcher.group(6);
+    appName = rtmpMatcher.group(3);
+    streamName = rtmpMatcher.group(4);
+    tcUrl = rtmpMatcher.group(0).substring(0, rtmpMatcher.group(0).length() - streamName.length());
 
     // socket connection
     Log.d(TAG, "connect() called. Host: "
@@ -140,7 +130,7 @@ public class RtmpConnection implements RtmpPublisher {
       if (!tlsEnabled) {
         socket = new Socket();
         SocketAddress socketAddress = new InetSocketAddress(host, port);
-        socket.connect(socketAddress, 3000);
+        socket.connect(socketAddress, 5000);
       } else {
         socket = CreateSSLSocket.createSSlSocket(host, port);
         if (socket == null) throw new IOException("Socket creation failed");
@@ -161,12 +151,8 @@ public class RtmpConnection implements RtmpPublisher {
 
       @Override
       public void run() {
-        try {
-          Log.d(TAG, "starting main rx handler loop");
-          handleRxPacketLoop();
-        } catch (IOException ex) {
-          Logger.getLogger(RtmpConnection.class.getName()).log(Level.SEVERE, null, ex);
-        }
+        Log.d(TAG, "starting main rx handler loop");
+        handleRxPacketLoop();
       }
     });
     rxPacketHandler.start();
@@ -518,7 +504,7 @@ public class RtmpConnection implements RtmpPublisher {
     }
   }
 
-  private void handleRxPacketLoop() throws IOException {
+  private void handleRxPacketLoop() {
     // Handle all queued received RTMP packets
     while (!Thread.interrupted()) {
       try {
@@ -588,7 +574,7 @@ public class RtmpConnection implements RtmpPublisher {
     }
   }
 
-  private void handleRxInvoke(Command invoke) throws IOException {
+  private void handleRxInvoke(Command invoke) {
     String commandName = invoke.getCommandName();
     switch (commandName) {
       case "_error":
@@ -618,6 +604,7 @@ public class RtmpConnection implements RtmpPublisher {
               socket = new Socket(host, port);
             } else {
               socket = CreateSSLSocket.createSSlSocket(host, port);
+              if (socket == null) throw new IOException("Socket creation failed");
             }
             inputStream = new BufferedInputStream(socket.getInputStream());
             outputStream = new BufferedOutputStream(socket.getOutputStream());
@@ -629,11 +616,7 @@ public class RtmpConnection implements RtmpPublisher {
             rxPacketHandler = new Thread(new Runnable() {
               @Override
               public void run() {
-                try {
-                  handleRxPacketLoop();
-                } catch (IOException e) {
-                  e.printStackTrace();
-                }
+                handleRxPacketLoop();
               }
             });
             rxPacketHandler.start();

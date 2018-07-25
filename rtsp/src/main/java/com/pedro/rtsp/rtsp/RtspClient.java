@@ -29,9 +29,7 @@ public class RtspClient {
 
   private final String TAG = "RtspClient";
   private static final Pattern rtspUrlPattern =
-      Pattern.compile("^rtsp://([^/:]+)(:(\\d+))*/([^/]+)(/(.*))*$");
-  private static final Pattern rtspsUrlPattern =
-      Pattern.compile("^rtsps://([^/:]+)(:(\\d+))*/([^/]+)(/(.*))*$");
+      Pattern.compile("^rtsps?://([^/:]+)(?::(\\d+))*/([^/]+)/?([^/]*)$");
 
   private final long timestamp;
   private String host = "";
@@ -93,23 +91,17 @@ public class RtspClient {
 
   public void setUrl(String url) {
     Matcher rtspMatcher = rtspUrlPattern.matcher(url);
-    Matcher rtspsMatcher = rtspsUrlPattern.matcher(url);
-    Matcher matcher;
     if (rtspMatcher.matches()) {
-      matcher = rtspMatcher;
-      tlsEnabled = false;
-    } else if (rtspsMatcher.matches()) {
-      matcher = rtspsMatcher;
-      tlsEnabled = true;
+      tlsEnabled = rtspMatcher.group(0).startsWith("rtsps");
     } else {
       streaming = false;
       connectCheckerRtsp.onConnectionFailedRtsp(
           "Endpoint malformed, should be: rtsp://ip:port/appname/streamname");
       return;
     }
-    host = matcher.group(1);
-    port = Integer.parseInt((matcher.group(3) != null) ? matcher.group(3) : "1935");
-    path = "/" + matcher.group(4) + "/" + matcher.group(6);
+    host = rtspMatcher.group(1);
+    port = Integer.parseInt((rtspMatcher.group(2) != null) ? rtspMatcher.group(2) : "1935");
+    path = "/" + rtspMatcher.group(3) + "/" + rtspMatcher.group(4);
   }
 
   public OutputStream getOutputStream() {
@@ -154,9 +146,7 @@ public class RtspClient {
   public void connect() {
     if (!streaming) {
       h264Packet = new H264Packet(this, protocol);
-      if (sps != null && pps != null) {
-        h264Packet.setSPSandPPS(sps, pps);
-      }
+      if (sps  != null && pps != null) h264Packet.setSPSandPPS(sps, pps);
       aacPacket = new AacPacket(this, protocol);
       aacPacket.setSampleRate(sampleRate);
       thread = new Thread(new Runnable() {
@@ -166,12 +156,12 @@ public class RtspClient {
             if (!tlsEnabled) {
               connectionSocket = new Socket();
               SocketAddress socketAddress = new InetSocketAddress(host, port);
-              connectionSocket.connect(socketAddress, 3000);
+              connectionSocket.connect(socketAddress, 5000);
             } else {
               connectionSocket = CreateSSLSocket.createSSlSocket(host, port);
               if (connectionSocket == null) throw new IOException("Socket creation failed");
             }
-            connectionSocket.setSoTimeout(3000);
+            connectionSocket.setSoTimeout(5000);
             reader = new BufferedReader(new InputStreamReader(connectionSocket.getInputStream()));
             outputStream = connectionSocket.getOutputStream();
             writer = new BufferedWriter(new OutputStreamWriter(outputStream));
@@ -387,10 +377,7 @@ public class RtspClient {
     return "CSeq: "
         + (++mCSeq)
         + "\r\n"
-        + "Content-Length: 0\r\n"
-        + (sessionId != null ? "Session: "
-        + sessionId
-        + "\r\n" : "")
+        + (sessionId != null ? "Session: " + sessionId + "\r\n" : "")
         // For some reason you may have to remove last "\r\n" in the next line to make the RTSP client work with your wowza server :/
         + (authorization != null ? "Authorization: " + authorization + "\r\n" : "")
         + "\r\n";

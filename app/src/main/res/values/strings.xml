@@ -63,8 +63,11 @@
   <string name="money">Money</string>
   <string name="pixelated">Pixelated</string>
   <string name="polygonization">Polygonization</string>
+  <string name="rgb_saturate">RGB saturate</string>
   <string name="ripple">Ripple</string>
+  <string name="rotation">Rotation</string>
   <string name="saturation">Saturation</string>
+  <string name="surface_filter">Surface filter</string>
   <string name="rainbow">Rainbow</string>
   <string name="sharpness">Sharpness</string>
   <string name="temperature">Temperature</string>

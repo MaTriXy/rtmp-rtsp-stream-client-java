@@ -25,9 +25,8 @@ import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.Toast;
 import com.pedro.encoder.input.video.CameraOpenException;
-import com.pedro.encoder.input.video.EffectManager;
-import com.pedro.rtpstreamer.R;
 import com.pedro.rtplibrary.rtsp.RtspCamera1;
+import com.pedro.rtpstreamer.R;
 import com.pedro.rtsp.rtsp.Protocol;
 import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 import java.io.File;
@@ -36,6 +35,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * More documentation see:
@@ -189,24 +189,6 @@ public class RtspActivity extends AppCompatActivity
           drawerLayout.closeDrawer(Gravity.START);
         }
         return true;
-      case R.id.clear:
-        rtspCamera1.setEffect(EffectManager.CLEAR);
-        return true;
-      case R.id.grey_scale:
-        rtspCamera1.setEffect(EffectManager.GREYSCALE);
-        return true;
-      case R.id.sepia:
-        rtspCamera1.setEffect(EffectManager.SEPIA);
-        return true;
-      case R.id.negative:
-        rtspCamera1.setEffect(EffectManager.NEGATIVE);
-        return true;
-      case R.id.aqua:
-        rtspCamera1.setEffect(EffectManager.AQUA);
-        return true;
-      case R.id.posterize:
-        rtspCamera1.setEffect(EffectManager.POSTERIZE);
-        return true;
       case R.id.microphone:
         if (!rtspCamera1.isAudioMuted()) {
           item.setIcon(getResources().getDrawable(R.drawable.icon_microphone_off));
@@ -250,7 +232,9 @@ public class RtspActivity extends AppCompatActivity
           }
           int width = resolution.width;
           int height = resolution.height;
-          if (rtspCamera1.prepareAudio(Integer.parseInt(etAudioBitrate.getText().toString()) * 1024,
+          if (rtspCamera1.isRecording()
+              || rtspCamera1.prepareAudio(
+              Integer.parseInt(etAudioBitrate.getText().toString()) * 1024,
               Integer.parseInt(etSampleRate.getText().toString()),
               rgChannel.getCheckedRadioButtonId() == R.id.rb_stereo, cbEchoCanceler.isChecked(),
               cbNoiseSuppressor.isChecked()) && rtspCamera1.prepareVideo(width, height,
@@ -281,11 +265,24 @@ public class RtspActivity extends AppCompatActivity
               if (!folder.exists()) {
                 folder.mkdir();
               }
-              SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss");
+              SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault());
               currentDateAndTime = sdf.format(new Date());
-              rtspCamera1.startRecord(folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
-              bRecord.setText(R.string.stop_record);
-              Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+              if (!rtspCamera1.isStreaming()) {
+                if (rtspCamera1.prepareAudio() && rtspCamera1.prepareVideo()) {
+                  rtspCamera1.startRecord(
+                      folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
+                  bRecord.setText(R.string.stop_record);
+                  Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+                } else {
+                  Toast.makeText(this, "Error preparing stream, This device cant do it",
+                      Toast.LENGTH_SHORT).show();
+                }
+              } else {
+                rtspCamera1.startRecord(
+                    folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
+                bRecord.setText(R.string.stop_record);
+                Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+              }
             } catch (IOException e) {
               rtspCamera1.stopRecord();
               bRecord.setText(R.string.start_record);

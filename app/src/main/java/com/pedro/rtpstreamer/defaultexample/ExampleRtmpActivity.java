@@ -18,6 +18,7 @@ import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Locale;
 import net.ossrs.rtmp.ConnectCheckerRtmp;
 
 /**
@@ -113,7 +114,8 @@ public class ExampleRtmpActivity extends AppCompatActivity
     switch (view.getId()) {
       case R.id.b_start_stop:
         if (!rtmpCamera1.isStreaming()) {
-          if (rtmpCamera1.prepareAudio() && rtmpCamera1.prepareVideo()) {
+          if (rtmpCamera1.isRecording()
+              || rtmpCamera1.prepareAudio() && rtmpCamera1.prepareVideo()) {
             button.setText(R.string.stop_button);
             rtmpCamera1.startStream(etUrl.getText().toString());
           } else {
@@ -139,11 +141,24 @@ public class ExampleRtmpActivity extends AppCompatActivity
               if (!folder.exists()) {
                 folder.mkdir();
               }
-              SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss");
+              SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault());
               currentDateAndTime = sdf.format(new Date());
-              rtmpCamera1.startRecord(folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
-              bRecord.setText(R.string.stop_record);
-              Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+              if (!rtmpCamera1.isStreaming()) {
+                if (rtmpCamera1.prepareAudio() && rtmpCamera1.prepareVideo()) {
+                  rtmpCamera1.startRecord(
+                      folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
+                  bRecord.setText(R.string.stop_record);
+                  Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+                } else {
+                  Toast.makeText(this, "Error preparing stream, This device cant do it",
+                      Toast.LENGTH_SHORT).show();
+                }
+              } else {
+                rtmpCamera1.startRecord(
+                    folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
+                bRecord.setText(R.string.stop_record);
+                Toast.makeText(this, "Recording... ", Toast.LENGTH_SHORT).show();
+              }
             } catch (IOException e) {
               rtmpCamera1.stopRecord();
               bRecord.setText(R.string.start_record);
