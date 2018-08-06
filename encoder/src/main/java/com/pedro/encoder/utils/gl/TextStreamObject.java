@@ -6,7 +6,6 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.util.Log;
-import java.io.IOException;
 
 /**
  * Created by pedro on 23/09/17.
@@ -24,28 +23,23 @@ public class TextStreamObject extends StreamObjectBase {
 
   @Override
   public int getWidth() {
-    return imageBitmap.getWidth();
+    return imageBitmap != null ? imageBitmap.getWidth() : 0;
   }
 
   @Override
   public int getHeight() {
-    return imageBitmap.getHeight();
+    return imageBitmap != null ? imageBitmap.getHeight() : 0;
   }
 
-  public void load(String text, float textSize, int textColor) throws IOException {
+  public void load(String text, float textSize, int textColor) {
     numFrames = 1;
     imageBitmap = textAsBitmap(text, textSize, textColor);
     Log.i(TAG, "finish load text");
   }
 
   @Override
-  public void resize(int width, int height) {
-    imageBitmap = Bitmap.createScaledBitmap(imageBitmap, width, height, false);
-  }
-
-  @Override
   public void recycle() {
-    imageBitmap.recycle();
+    if (imageBitmap != null) imageBitmap.recycle();
   }
 
   private Bitmap textAsBitmap(String text, float textSize, int textColor) {

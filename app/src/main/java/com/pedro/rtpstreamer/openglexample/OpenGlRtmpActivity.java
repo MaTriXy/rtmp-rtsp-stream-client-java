@@ -49,10 +49,11 @@ import com.pedro.encoder.input.gl.render.filters.SharpnessFilterRender;
 import com.pedro.encoder.input.gl.render.filters.SurfaceFilterRender;
 import com.pedro.encoder.input.gl.render.filters.TemperatureFilterRender;
 import com.pedro.encoder.input.gl.render.filters.ZebraFilterRender;
+import com.pedro.encoder.input.gl.render.filters.object.GifObjectFilterRender;
+import com.pedro.encoder.input.gl.render.filters.object.ImageObjectFilterRender;
+import com.pedro.encoder.input.gl.render.filters.object.TextObjectFilterRender;
 import com.pedro.encoder.input.video.CameraOpenException;
-import com.pedro.encoder.utils.gl.GifStreamObject;
-import com.pedro.encoder.utils.gl.ImageStreamObject;
-import com.pedro.encoder.utils.gl.TextStreamObject;
+import com.pedro.encoder.utils.gl.TranslateTo;
 import com.pedro.rtplibrary.rtmp.RtmpCamera1;
 import com.pedro.rtplibrary.view.OpenGlView;
 import com.pedro.rtpstreamer.R;
@@ -95,6 +96,9 @@ public class OpenGlRtmpActivity extends AppCompatActivity
     switchCamera.setOnClickListener(this);
     etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtmp);
+    //Number of filters to use at same time.
+    // You must modify it before create rtmp or rtsp object.
+    //ManagerRender.numFilters = 2;
     rtmpCamera1 = new RtmpCamera1(openGlView, this);
     openGlView.getHolder().addCallback(this);
     //openGlView.setKeepAspectRatio(true);
@@ -115,19 +119,6 @@ public class OpenGlRtmpActivity extends AppCompatActivity
             "FXAA " + (rtmpCamera1.getGlInterface().isAAEnabled() ? " enabled" : "disabled"),
             Toast.LENGTH_SHORT).show();
         rtmpCamera1.getGlInterface().enableAA(!rtmpCamera1.getGlInterface().isAAEnabled());
-        return true;
-      //stream object
-      case R.id.text:
-        setTextToStream();
-        return true;
-      case R.id.image:
-        setImageToStream();
-        return true;
-      case R.id.gif:
-        setGifToStream();
-        return true;
-      case R.id.clear:
-        rtmpCamera1.getGlInterface().clear();
         return true;
       //filters. NOTE: You can change filter values on fly without reset the filter.
       // Example:
@@ -181,11 +172,17 @@ public class OpenGlRtmpActivity extends AppCompatActivity
       case R.id.gamma:
         rtmpCamera1.getGlInterface().setFilter(new GammaFilterRender());
         return true;
+      case R.id.gif:
+        setGifToStream();
+        return true;
       case R.id.grey_scale:
         rtmpCamera1.getGlInterface().setFilter(new GreyScaleFilterRender());
         return true;
       case R.id.halftone_lines:
         rtmpCamera1.getGlInterface().setFilter(new HalftoneLinesFilterRender());
+        return true;
+      case R.id.image:
+        setImageToStream();
         return true;
       case R.id.image_70s:
         rtmpCamera1.getGlInterface().setFilter(new Image70sFilterRender());
@@ -239,10 +236,13 @@ public class OpenGlRtmpActivity extends AppCompatActivity
         mediaPlayer.setSurface(surfaceFilterRender.getSurface());
         mediaPlayer.start();
         //Video is 360x240 so select a percent to keep aspect ratio (50% x 33.3% screen)
-        surfaceFilterRender.setScale(50f, 33.f);
+        surfaceFilterRender.setScale(50f, 33.3f);
         return true;
       case R.id.temperature:
         rtmpCamera1.getGlInterface().setFilter(new TemperatureFilterRender());
+        return true;
+      case R.id.text:
+        setTextToStream();
         return true;
       case R.id.zebra:
         rtmpCamera1.getGlInterface().setFilter(new ZebraFilterRender());
@@ -253,30 +253,31 @@ public class OpenGlRtmpActivity extends AppCompatActivity
   }
 
   private void setTextToStream() {
-    try {
-      TextStreamObject textStreamObject = new TextStreamObject();
-      textStreamObject.load("Hello world", 22, Color.RED);
-      rtmpCamera1.getGlInterface().setText(textStreamObject);
-    } catch (IOException e) {
-      Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
-    }
+    TextObjectFilterRender textObjectFilterRender = new TextObjectFilterRender();
+    rtmpCamera1.getGlInterface().setFilter(textObjectFilterRender);
+    textObjectFilterRender.setText("Hello world", 22, Color.RED);
+    textObjectFilterRender.setDefaultScale(rtmpCamera1.getStreamWidth(),
+        rtmpCamera1.getStreamHeight());
+    textObjectFilterRender.setPosition(TranslateTo.CENTER);
   }
 
   private void setImageToStream() {
-    try {
-      ImageStreamObject imageStreamObject = new ImageStreamObject();
-      imageStreamObject.load(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher));
-      rtmpCamera1.getGlInterface().setImage(imageStreamObject);
-    } catch (IOException e) {
-      Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
-    }
+    ImageObjectFilterRender imageObjectFilterRender = new ImageObjectFilterRender();
+    rtmpCamera1.getGlInterface().setFilter(imageObjectFilterRender);
+    imageObjectFilterRender.setImage(
+        BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher));
+    imageObjectFilterRender.setDefaultScale(rtmpCamera1.getStreamWidth(),
+        rtmpCamera1.getStreamHeight());
+    imageObjectFilterRender.setPosition(TranslateTo.RIGHT);
   }
 
   private void setGifToStream() {
     try {
-      GifStreamObject gifStreamObject = new GifStreamObject();
-      gifStreamObject.load(getResources().openRawResource(R.raw.banana));
-      rtmpCamera1.getGlInterface().setGif(gifStreamObject);
+      GifObjectFilterRender gifStreamObject = new GifObjectFilterRender();
+      gifStreamObject.setGif(getResources().openRawResource(R.raw.banana));
+      rtmpCamera1.getGlInterface().setFilter(gifStreamObject);
+      gifStreamObject.setDefaultScale(rtmpCamera1.getStreamWidth(), rtmpCamera1.getStreamHeight());
+      gifStreamObject.setPosition(TranslateTo.BOTTOM);
     } catch (IOException e) {
       Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
     }

@@ -30,9 +30,11 @@ import com.pedro.encoder.input.gl.render.filters.EdgeDetectionFilterRender;
 import com.pedro.encoder.input.gl.render.filters.ExposureFilterRender;
 import com.pedro.encoder.input.gl.render.filters.FireFilterRender;
 import com.pedro.encoder.input.gl.render.filters.GammaFilterRender;
+import com.pedro.encoder.input.gl.render.filters.object.GifObjectFilterRender;
 import com.pedro.encoder.input.gl.render.filters.GreyScaleFilterRender;
 import com.pedro.encoder.input.gl.render.filters.HalftoneLinesFilterRender;
 import com.pedro.encoder.input.gl.render.filters.Image70sFilterRender;
+import com.pedro.encoder.input.gl.render.filters.object.ImageObjectFilterRender;
 import com.pedro.encoder.input.gl.render.filters.LamoishFilterRender;
 import com.pedro.encoder.input.gl.render.filters.MoneyFilterRender;
 import com.pedro.encoder.input.gl.render.filters.NegativeFilterRender;
@@ -48,11 +50,10 @@ import com.pedro.encoder.input.gl.render.filters.SepiaFilterRender;
 import com.pedro.encoder.input.gl.render.filters.SharpnessFilterRender;
 import com.pedro.encoder.input.gl.render.filters.SurfaceFilterRender;
 import com.pedro.encoder.input.gl.render.filters.TemperatureFilterRender;
+import com.pedro.encoder.input.gl.render.filters.object.TextObjectFilterRender;
 import com.pedro.encoder.input.gl.render.filters.ZebraFilterRender;
 import com.pedro.encoder.input.video.CameraOpenException;
-import com.pedro.encoder.utils.gl.GifStreamObject;
-import com.pedro.encoder.utils.gl.ImageStreamObject;
-import com.pedro.encoder.utils.gl.TextStreamObject;
+import com.pedro.encoder.utils.gl.TranslateTo;
 import com.pedro.rtplibrary.rtsp.RtspCamera1;
 import com.pedro.rtplibrary.view.OpenGlView;
 import com.pedro.rtpstreamer.R;
@@ -95,6 +96,9 @@ public class OpenGlRtspActivity extends AppCompatActivity
     switchCamera.setOnClickListener(this);
     etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtsp);
+    //Number of filters to use at same time.
+    // You must modify it before create rtmp or rtsp object.
+    //ManagerRender.numFilters = 2;
     rtspCamera1 = new RtspCamera1(openGlView, this);
     openGlView.getHolder().addCallback(this);
     //openGlView.setKeepAspectRatio(true);
@@ -115,19 +119,6 @@ public class OpenGlRtspActivity extends AppCompatActivity
             "FXAA " + (rtspCamera1.getGlInterface().isAAEnabled() ? " enabled" : "disabled"),
             Toast.LENGTH_SHORT).show();
         rtspCamera1.getGlInterface().enableAA(!rtspCamera1.getGlInterface().isAAEnabled());
-        return true;
-      //stream object
-      case R.id.text:
-        setTextToStream();
-        return true;
-      case R.id.image:
-        setImageToStream();
-        return true;
-      case R.id.gif:
-        setGifToStream();
-        return true;
-      case R.id.clear:
-        rtspCamera1.getGlInterface().clear();
         return true;
       //filters. NOTE: You can change filter values on fly without reset the filter.
       // Example:
@@ -181,11 +172,17 @@ public class OpenGlRtspActivity extends AppCompatActivity
       case R.id.gamma:
         rtspCamera1.getGlInterface().setFilter(new GammaFilterRender());
         return true;
+      case R.id.gif:
+        setGifToStream();
+        return true;
       case R.id.grey_scale:
         rtspCamera1.getGlInterface().setFilter(new GreyScaleFilterRender());
         return true;
       case R.id.halftone_lines:
         rtspCamera1.getGlInterface().setFilter(new HalftoneLinesFilterRender());
+        return true;
+      case R.id.image:
+        setImageToStream();
         return true;
       case R.id.image_70s:
         rtspCamera1.getGlInterface().setFilter(new Image70sFilterRender());
@@ -239,10 +236,13 @@ public class OpenGlRtspActivity extends AppCompatActivity
         mediaPlayer.setSurface(surfaceFilterRender.getSurface());
         mediaPlayer.start();
         //Video is 360x240 so select a percent to keep aspect ratio (50% x 33.3% screen)
-        surfaceFilterRender.setScale(50f, 33.f);
+        surfaceFilterRender.setScale(50f, 33.3f);
         return true;
       case R.id.temperature:
         rtspCamera1.getGlInterface().setFilter(new TemperatureFilterRender());
+        return true;
+      case R.id.text:
+        setTextToStream();
         return true;
       case R.id.zebra:
         rtspCamera1.getGlInterface().setFilter(new ZebraFilterRender());
@@ -253,30 +253,31 @@ public class OpenGlRtspActivity extends AppCompatActivity
   }
 
   private void setTextToStream() {
-    try {
-      TextStreamObject textStreamObject = new TextStreamObject();
-      textStreamObject.load("Hello world", 22, Color.RED);
-      rtspCamera1.getGlInterface().setText(textStreamObject);
-    } catch (IOException e) {
-      Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
-    }
+    TextObjectFilterRender textObjectFilterRender = new TextObjectFilterRender();
+    rtspCamera1.getGlInterface().setFilter(textObjectFilterRender);
+    textObjectFilterRender.setText("Hello world", 22, Color.RED);
+    textObjectFilterRender.setDefaultScale(rtspCamera1.getStreamWidth(),
+        rtspCamera1.getStreamHeight());
+    textObjectFilterRender.setPosition(TranslateTo.CENTER);
   }
 
   private void setImageToStream() {
-    try {
-      ImageStreamObject imageStreamObject = new ImageStreamObject();
-      imageStreamObject.load(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher));
-      rtspCamera1.getGlInterface().setImage(imageStreamObject);
-    } catch (IOException e) {
-      Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
-    }
+    ImageObjectFilterRender imageObjectFilterRender = new ImageObjectFilterRender();
+    rtspCamera1.getGlInterface().setFilter(imageObjectFilterRender);
+    imageObjectFilterRender.setImage(
+        BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher));
+    imageObjectFilterRender.setDefaultScale(rtspCamera1.getStreamWidth(),
+        rtspCamera1.getStreamHeight());
+    imageObjectFilterRender.setPosition(TranslateTo.RIGHT);
   }
 
   private void setGifToStream() {
     try {
-      GifStreamObject gifStreamObject = new GifStreamObject();
-      gifStreamObject.load(getResources().openRawResource(R.raw.banana));
-      rtspCamera1.getGlInterface().setGif(gifStreamObject);
+      GifObjectFilterRender gifStreamObject = new GifObjectFilterRender();
+      gifStreamObject.setGif(getResources().openRawResource(R.raw.banana));
+      rtspCamera1.getGlInterface().setFilter(gifStreamObject);
+      gifStreamObject.setDefaultScale(rtspCamera1.getStreamWidth(), rtspCamera1.getStreamHeight());
+      gifStreamObject.setPosition(TranslateTo.BOTTOM);
     } catch (IOException e) {
       Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
     }
