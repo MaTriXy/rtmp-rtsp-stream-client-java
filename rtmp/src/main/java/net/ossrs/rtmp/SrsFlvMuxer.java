@@ -92,6 +92,10 @@ public class SrsFlvMuxer {
     publisher.setAuthorization(user, password);
   }
 
+  public boolean isConnected() {
+    return connected;
+  }
+
   /**
    * set video resolution for publisher
    *
