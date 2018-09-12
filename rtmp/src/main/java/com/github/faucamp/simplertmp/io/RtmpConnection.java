@@ -1,6 +1,7 @@
 package com.github.faucamp.simplertmp.io;
 
 import android.util.Log;
+
 import com.github.faucamp.simplertmp.RtmpPublisher;
 import com.github.faucamp.simplertmp.Util;
 import com.github.faucamp.simplertmp.amf.AmfMap;
@@ -78,6 +79,7 @@ public class RtmpConnection implements RtmpPublisher {
   private String challenge = null;
   private String opaque = null;
   private boolean onAuth = false;
+  private String netConnectionDescription;
 
   public RtmpConnection(ConnectCheckerRtmp connectCheckerRtmp) {
     this.connectCheckerRtmp = connectCheckerRtmp;
@@ -281,6 +283,7 @@ public class RtmpConnection implements RtmpPublisher {
           "Create stream failed, connected= " + connected + ", StreamId= " + currentStreamId);
       return false;
     }
+    netConnectionDescription = null;
 
     Log.d(TAG, "createStream(): Sending releaseStream command...");
     // transactionId == 2
@@ -316,7 +319,12 @@ public class RtmpConnection implements RtmpPublisher {
     }
     if (!publishPermitted) {
       shutdown(true);
-      connectCheckerRtmp.onConnectionFailedRtmp("Error configure stream, publish permitted failed");
+      if (netConnectionDescription != null && !netConnectionDescription.isEmpty()) {
+        connectCheckerRtmp.onConnectionFailedRtmp(netConnectionDescription);
+      } else {
+        connectCheckerRtmp.onConnectionFailedRtmp(
+            "Error configure stream, publish permitted failed");
+      }
     }
     return publishPermitted;
   }
@@ -422,6 +430,7 @@ public class RtmpConnection implements RtmpPublisher {
   private void reset() {
     connected = false;
     publishPermitted = false;
+    netConnectionDescription = null;
     tcUrl = null;
     swfUrl = null;
     pageUrl = null;
@@ -687,6 +696,13 @@ public class RtmpConnection implements RtmpPublisher {
           onMetaData();
           // We can now publish AV data
           publishPermitted = true;
+          synchronized (publishLock) {
+            publishLock.notifyAll();
+          }
+        } else if (code.equals("NetConnection.Connect.Rejected")) {
+          netConnectionDescription = ((AmfString) ((AmfObject) invoke.getData().get(1)).getProperty(
+              "description")).getValue();
+          publishPermitted = false;
           synchronized (publishLock) {
             publishLock.notifyAll();
           }
