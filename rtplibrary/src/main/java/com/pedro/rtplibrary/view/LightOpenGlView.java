@@ -1,6 +1,7 @@
 package com.pedro.rtplibrary.view;
 
 import android.content.Context;
+import android.content.res.TypedArray;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
 import android.support.annotation.RequiresApi;
@@ -10,6 +11,7 @@ import com.pedro.encoder.input.gl.SurfaceManager;
 import com.pedro.encoder.input.gl.render.SimpleCameraRender;
 import com.pedro.encoder.input.gl.render.filters.BaseFilterRender;
 import com.pedro.encoder.utils.gl.GlUtil;
+import com.pedro.rtplibrary.R;
 
 /**
  * Created by pedro on 21/02/18.
@@ -21,7 +23,7 @@ public class LightOpenGlView extends OpenGlViewBase {
 
   private SimpleCameraRender simpleCameraRender = null;
   private boolean keepAspectRatio = false;
-  private boolean isFrontPreviewFlip = false;
+  private boolean isFlipHorizontal = false, isFlipVertical = false;
 
   public LightOpenGlView(Context context) {
     super(context);
@@ -29,11 +31,20 @@ public class LightOpenGlView extends OpenGlViewBase {
 
   public LightOpenGlView(Context context, AttributeSet attrs) {
     super(context, attrs);
+    TypedArray typedArray = context.obtainStyledAttributes(attrs, R.styleable.LightOpenGlView);
+    try {
+      keepAspectRatio = typedArray.getBoolean(R.styleable.LightOpenGlView_keepAspectRatio, false);
+      isFlipHorizontal = typedArray.getBoolean(R.styleable.LightOpenGlView_isFlipHorizontal, false);
+      isFlipVertical = typedArray.getBoolean(R.styleable.LightOpenGlView_isFlipVertical, false);
+    } finally {
+      typedArray.recycle();
+    }
   }
 
   @Override
   public void init() {
     if (!initialized) simpleCameraRender = new SimpleCameraRender();
+    simpleCameraRender.setFlip(isFlipHorizontal, isFlipVertical);
     waitTime = 200;
     initialized = true;
   }
@@ -46,12 +57,8 @@ public class LightOpenGlView extends OpenGlViewBase {
     this.keepAspectRatio = keepAspectRatio;
   }
 
-  public boolean isFrontPreviewFlip() {
-    return isFrontPreviewFlip;
-  }
-
-  public void setFrontPreviewFlip(boolean frontPreviewFlip) {
-    isFrontPreviewFlip = frontPreviewFlip;
+  public void setCameraFlip(boolean isFlipHorizontal, boolean isFlipVertical) {
+    simpleCameraRender.setFlip(isFlipHorizontal, isFlipVertical);
   }
 
   @Override
@@ -59,7 +66,7 @@ public class LightOpenGlView extends OpenGlViewBase {
     surfaceManager = new SurfaceManager(getHolder().getSurface());
     surfaceManager.makeCurrent();
     simpleCameraRender.setStreamSize(encoderWidth, encoderHeight);
-    simpleCameraRender.isCamera2LandScape(isCamera2Landscape);
+    simpleCameraRender.setRotation(rotation);
     simpleCameraRender.initGl(getContext());
     simpleCameraRender.getSurfaceTexture().setOnFrameAvailableListener(this);
     semaphore.release();
@@ -71,8 +78,7 @@ public class LightOpenGlView extends OpenGlViewBase {
             frameAvailable = false;
             surfaceManager.makeCurrent();
             simpleCameraRender.updateFrame();
-            simpleCameraRender.drawFrame(previewWidth, previewHeight, keepAspectRatio,
-                isFrontPreviewFlip);
+            simpleCameraRender.drawFrame(previewWidth, previewHeight, keepAspectRatio);
             surfaceManager.swapBuffer();
             if (takePhotoCallback != null) {
               takePhotoCallback.onTakePhoto(
@@ -83,22 +89,18 @@ public class LightOpenGlView extends OpenGlViewBase {
             synchronized (sync) {
               if (surfaceManagerEncoder != null) {
                 surfaceManagerEncoder.makeCurrent();
-                simpleCameraRender.drawFrame(encoderWidth, encoderHeight, false, false);
+                simpleCameraRender.drawFrame(encoderWidth, encoderHeight, false);
                 long ts = simpleCameraRender.getSurfaceTexture().getTimestamp();
                 surfaceManagerEncoder.setPresentationTime(ts);
                 surfaceManagerEncoder.swapBuffer();
               }
             }
-            if (onChangeFace) {
-              simpleCameraRender.faceChanged(isFrontCamera);
-              onChangeFace = false;
-            }
           }
         }
       }
     } catch (InterruptedException ignore) {
+      Thread.currentThread().interrupt();
     } finally {
-      surfaceManager.release();
       simpleCameraRender.release();
     }
   }

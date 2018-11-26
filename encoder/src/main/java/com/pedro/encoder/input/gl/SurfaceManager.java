@@ -22,40 +22,32 @@ public class SurfaceManager {
   private static final int EGL_RECORDABLE_ANDROID = 0x3142;
 
   private EGLContext eglContext = null;
-  private EGLContext eglSharedContext = null;
   private EGLSurface eglSurface = null;
   private EGLDisplay eglDisplay = null;
-
-  private Surface surface;
 
   /**
    * Creates an EGL context and an EGL surface.
    */
   public SurfaceManager(Surface surface, SurfaceManager manager) {
-    this.surface = surface;
-    eglSharedContext = manager.eglContext;
-    eglSetup();
+    eglSetup(surface, manager.eglContext);
   }
 
   /**
    * Creates an EGL context and an EGL surface.
    */
   public SurfaceManager(Surface surface, EGLContext eglContext) {
-    this.surface = surface;
-    eglSharedContext = eglContext;
-    eglSetup();
+    eglSetup(surface, eglContext);
   }
 
   /**
    * Creates an EGL context and an EGL surface.
    */
   public SurfaceManager(Surface surface) {
-    this.surface = surface;
-    eglSetup();
+    eglSetup(surface, null);
   }
 
   public SurfaceManager() {
-    eglSetup();
+    eglSetup(null, null);
   }
 
   public void makeCurrent() {
@@ -79,7 +71,7 @@ public class SurfaceManager {
   /**
    * Prepares EGL.  We want a GLES 2.0 context and a surface that supports recording.
    */
-  private void eglSetup() {
+  private void eglSetup(Surface surface, EGLContext eglSharedContext) {
     eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
     if (eglDisplay == EGL14.EGL_NO_DISPLAY) {
       throw new RuntimeException("unable to get EGL14 display");
@@ -120,12 +112,8 @@ public class SurfaceManager {
         EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE
     };
 
-    if (eglSharedContext == null) {
-      eglContext =
-          EGL14.eglCreateContext(eglDisplay, configs[0], EGL14.EGL_NO_CONTEXT, attrib_list, 0);
-    } else {
-      eglContext = EGL14.eglCreateContext(eglDisplay, configs[0], eglSharedContext, attrib_list, 0);
-    }
+    eglContext = EGL14.eglCreateContext(eglDisplay, configs[0],
+        eglSharedContext == null ? EGL14.EGL_NO_CONTEXT : eglSharedContext, attrib_list, 0);
     GlUtil.checkEglError("eglCreateContext");
 
     // Create a window surface, and attach it to the Surface we received.
@@ -162,10 +150,6 @@ public class SurfaceManager {
 
   public EGLContext getEglContext() {
     return eglContext;
-  }
-
-  public EGLContext getEglSharedContext() {
-    return eglSharedContext;
   }
 
   public EGLSurface getEglSurface() {

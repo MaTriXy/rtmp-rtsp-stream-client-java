@@ -3,8 +3,6 @@ package com.pedro.rtsp.rtsp;
 import android.media.MediaCodec;
 import android.util.Base64;
 import android.util.Log;
-import com.pedro.rtsp.rtp.packets.AacPacket;
-import com.pedro.rtsp.rtp.packets.H264Packet;
 import com.pedro.rtsp.utils.AuthUtil;
 import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 import com.pedro.rtsp.utils.CreateSSLSocket;
@@ -35,7 +33,7 @@ public class RtspClient {
   private String host = "";
   private int port;
   private String path;
-  private int sampleRate = 44100;
+  private int sampleRate = 32000;
   private boolean isStereo = true;
 
   private final int trackVideo = 1;
@@ -65,15 +63,15 @@ public class RtspClient {
   private volatile boolean streaming = false;
   //for secure transport
   private boolean tlsEnabled = false;
-  //packets
-  private H264Packet h264Packet;
-  private AacPacket aacPacket;
+  private RtspSender rtspSender;
 
   public RtspClient(ConnectCheckerRtsp connectCheckerRtsp) {
     this.connectCheckerRtsp = connectCheckerRtsp;
     long uptime = System.currentTimeMillis();
     timestamp = (uptime / 1000) << 32 & (((uptime - ((uptime / 1000) * 1000)) >> 32)
         / 1000); // NTP timestamp
+    sps = defaultSPS.getBytes();
+    pps = defaultPPS.getBytes();
   }
 
   public void setProtocol(Protocol protocol) {
@@ -145,10 +143,7 @@ public class RtspClient {
 
   public void connect() {
     if (!streaming) {
-      h264Packet = new H264Packet(this, protocol);
-      if (sps  != null && pps != null) h264Packet.setSPSandPPS(sps, pps);
-      aacPacket = new AacPacket(this, protocol);
-      aacPacket.setSampleRate(sampleRate);
+      rtspSender = new RtspSender(connectCheckerRtsp, protocol, sps, pps, sampleRate);
       thread = new Thread(new Runnable() {
         @Override
         public void run() {
@@ -208,8 +203,10 @@ public class RtspClient {
             writer.flush();
             getResponse(false, true);
 
-            h264Packet.updateDestinationVideo();
-            aacPacket.updateDestinationAudio();
+            rtspSender.setDataStream(outputStream, host);
+            rtspSender.setVideoPorts(videoPorts[0], videoPorts[1]);
+            rtspSender.setAudioPorts(audioPorts[0], audioPorts[1]);
+            rtspSender.start();
             streaming = true;
             connectCheckerRtsp.onConnectionSuccessRtsp();
           } catch (IOException | NullPointerException e) {
@@ -226,10 +223,7 @@ public class RtspClient {
   public void disconnect() {
     if (streaming) {
       streaming = false;
-      if (h264Packet != null && aacPacket != null) {
-        h264Packet.close();
-        aacPacket.close();
-      }
+      rtspSender.stop();
       thread = new Thread(new Runnable() {
         @Override
         public void run() {
@@ -505,13 +499,13 @@ public class RtspClient {
 
   public void sendVideo(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
     if (isStreaming()) {
-      h264Packet.createAndSendPacket(h264Buffer, info);
+      rtspSender.sendVideoFrame(h264Buffer, info);
     }
   }
 
   public void sendAudio(ByteBuffer aacBuffer, MediaCodec.BufferInfo info) {
     if (isStreaming()) {
-      aacPacket.createAndSendPacket(aacBuffer, info);
+      rtspSender.sendAudioFrame(aacBuffer, info);
     }
   }
 }

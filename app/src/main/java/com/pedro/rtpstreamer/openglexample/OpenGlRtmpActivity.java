@@ -10,12 +10,14 @@ import android.support.annotation.RequiresApi;
 import android.support.v7.app.AppCompatActivity;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
+import com.pedro.encoder.input.gl.SpriteGestureController;
 import com.pedro.encoder.input.gl.render.filters.AndroidViewFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BasicDeformationFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BeautyFilterRender;
@@ -71,7 +73,8 @@ import net.ossrs.rtmp.ConnectCheckerRtmp;
  */
 @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
 public class OpenGlRtmpActivity extends AppCompatActivity
-    implements ConnectCheckerRtmp, View.OnClickListener, SurfaceHolder.Callback {
+    implements ConnectCheckerRtmp, View.OnClickListener, SurfaceHolder.Callback,
+    View.OnTouchListener {
 
   private RtmpCamera1 rtmpCamera1;
   private Button button;
@@ -82,6 +85,7 @@ public class OpenGlRtmpActivity extends AppCompatActivity
   private File folder = new File(Environment.getExternalStorageDirectory().getAbsolutePath()
       + "/rtmp-rtsp-stream-client-java");
   private OpenGlView openGlView;
+  private SpriteGestureController spriteGestureController = new SpriteGestureController();
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -97,13 +101,9 @@ public class OpenGlRtmpActivity extends AppCompatActivity
     switchCamera.setOnClickListener(this);
     etUrl = findViewById(R.id.et_rtp_url);
     etUrl.setHint(R.string.hint_rtmp);
-    //Number of filters to use at same time.
-    // You must modify it before create rtmp or rtsp object.
-    //ManagerRender.numFilters = 2;
     rtmpCamera1 = new RtmpCamera1(openGlView, this);
     openGlView.getHolder().addCallback(this);
-    //openGlView.setKeepAspectRatio(true);
-    //openGlView.setFrontPreviewFlip(true);
+    openGlView.setOnTouchListener(this);
   }
 
   @Override
@@ -114,10 +114,12 @@ public class OpenGlRtmpActivity extends AppCompatActivity
 
   @Override
   public boolean onOptionsItemSelected(MenuItem item) {
+    //Stop listener for image, text and gif stream objects.
+    spriteGestureController.setBaseObjectFilterRender(null);
     switch (item.getItemId()) {
       case R.id.e_d_fxaa:
         Toast.makeText(this,
-            "FXAA " + (rtmpCamera1.getGlInterface().isAAEnabled() ? " enabled" : "disabled"),
+            "FXAA " + (rtmpCamera1.getGlInterface().isAAEnabled() ? "enabled" : "disabled"),
             Toast.LENGTH_SHORT).show();
         rtmpCamera1.getGlInterface().enableAA(!rtmpCamera1.getGlInterface().isAAEnabled());
         return true;
@@ -238,7 +240,7 @@ public class OpenGlRtmpActivity extends AppCompatActivity
         mediaPlayer.start();
         //Video is 360x240 so select a percent to keep aspect ratio (50% x 33.3% screen)
         surfaceFilterRender.setScale(50f, 33.3f);
-        surfaceFilterRender.setListeners(openGlView); //Optional
+        spriteGestureController.setBaseObjectFilterRender(surfaceFilterRender); //Optional
         return true;
       case R.id.temperature:
         rtmpCamera1.getGlInterface().setFilter(new TemperatureFilterRender());
@@ -261,7 +263,7 @@ public class OpenGlRtmpActivity extends AppCompatActivity
     textObjectFilterRender.setDefaultScale(rtmpCamera1.getStreamWidth(),
         rtmpCamera1.getStreamHeight());
     textObjectFilterRender.setPosition(TranslateTo.CENTER);
-    textObjectFilterRender.setListeners(openGlView);  //Optional
+    spriteGestureController.setBaseObjectFilterRender(textObjectFilterRender); //Optional
   }
 
   private void setImageToStream() {
@@ -272,7 +274,7 @@ public class OpenGlRtmpActivity extends AppCompatActivity
     imageObjectFilterRender.setDefaultScale(rtmpCamera1.getStreamWidth(),
         rtmpCamera1.getStreamHeight());
     imageObjectFilterRender.setPosition(TranslateTo.RIGHT);
-    imageObjectFilterRender.setListeners(openGlView); //Optional
+    spriteGestureController.setBaseObjectFilterRender(imageObjectFilterRender); //Optional
   }
 
   private void setGifToStream() {
@@ -280,9 +282,10 @@ public class OpenGlRtmpActivity extends AppCompatActivity
       GifObjectFilterRender gifObjectFilterRender = new GifObjectFilterRender();
       gifObjectFilterRender.setGif(getResources().openRawResource(R.raw.banana));
       rtmpCamera1.getGlInterface().setFilter(gifObjectFilterRender);
-      gifObjectFilterRender.setDefaultScale(rtmpCamera1.getStreamWidth(), rtmpCamera1.getStreamHeight());
+      gifObjectFilterRender.setDefaultScale(rtmpCamera1.getStreamWidth(),
+          rtmpCamera1.getStreamHeight());
       gifObjectFilterRender.setPosition(TranslateTo.BOTTOM);
-      gifObjectFilterRender.setListeners(openGlView); //Optional
+      spriteGestureController.setBaseObjectFilterRender(gifObjectFilterRender); //Optional
     } catch (IOException e) {
       Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show();
     }
@@ -433,5 +436,15 @@ public class OpenGlRtmpActivity extends AppCompatActivity
       button.setText(getResources().getString(R.string.start_button));
     }
     rtmpCamera1.stopPreview();
+  }
+
+  @Override
+  public boolean onTouch(View view, MotionEvent motionEvent) {
+    if (spriteGestureController.spriteTouched(view, motionEvent)) {
+      spriteGestureController.moveSprite(view, motionEvent);
+      spriteGestureController.scaleSprite(motionEvent);
+      return true;
+    }
+    return false;
   }
 }

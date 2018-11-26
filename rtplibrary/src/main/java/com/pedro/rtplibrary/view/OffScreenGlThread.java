@@ -8,6 +8,7 @@ import android.view.Surface;
 import com.pedro.encoder.input.gl.SurfaceManager;
 import com.pedro.encoder.input.gl.render.ManagerRender;
 import com.pedro.encoder.input.gl.render.filters.BaseFilterRender;
+import com.pedro.encoder.input.video.FpsLimiter;
 import com.pedro.encoder.utils.gl.GlUtil;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -40,11 +41,11 @@ public class OffScreenGlThread
 
   private boolean AAEnabled = false;
   private int waitTime = 10;
+  private int fps = 30;
+  private FpsLimiter fpsLimiter = new FpsLimiter();
   //used with camera
-  private boolean isCamera2Landscape = false;
-  private boolean onChangeFace = false;
-  private boolean isFrontCamera = false;
   private TakePhotoCallback takePhotoCallback;
+  private int rotation = 0;
 
   public OffScreenGlThread(Context context) {
     this.context = context;
@@ -60,6 +61,10 @@ public class OffScreenGlThread
   public void setEncoderSize(int width, int height) {
     this.encoderWidth = width;
     this.encoderHeight = height;
+  }
+
+  public void setFps(int fps) {
+    this.fps = fps;
   }
 
   @Override
@@ -111,9 +116,8 @@ public class OffScreenGlThread
   }
 
   @Override
-  public void setCameraFace(boolean frontCamera) {
-    onChangeFace = true;
-    isFrontCamera = frontCamera;
+  public void setRotation(int rotation) {
+    this.rotation = rotation;
   }
 
   @Override
@@ -127,26 +131,31 @@ public class OffScreenGlThread
   }
 
   @Override
-  public void start(boolean isCamera2Landscape) {
-    this.isCamera2Landscape = isCamera2Landscape;
-    thread = new Thread(this);
-    running = true;
-    thread.start();
-    semaphore.acquireUninterruptibly();
+  public void start() {
+    synchronized (sync) {
+      thread = new Thread(this);
+      running = true;
+      thread.start();
+      semaphore.acquireUninterruptibly();
+    }
   }
 
   @Override
   public void stop() {
-    if (thread != null) {
-      thread.interrupt();
-      try {
-        thread.join(1000);
-      } catch (InterruptedException e) {
+    synchronized (sync) {
+      if (thread != null) {
         thread.interrupt();
+        try {
+          thread.join(1000);
+        } catch (InterruptedException e) {
+          thread.interrupt();
+        }
+        thread = null;
       }
-      thread = null;
+      fpsLimiter.reset();
+      surfaceManager.release();
+      running = false;
     }
-    running = false;
   }
 
   @Override
@@ -154,11 +163,13 @@ public class OffScreenGlThread
     surfaceManager = new SurfaceManager();
     surfaceManager.makeCurrent();
     textureManager.setStreamSize(encoderWidth, encoderHeight);
-    textureManager.initGl(encoderWidth, encoderHeight, isCamera2Landscape, context);
+    textureManager.setCameraRotation(rotation);
+    textureManager.initGl(encoderWidth, encoderHeight, context);
     textureManager.getSurfaceTexture().setOnFrameAvailableListener(this);
     semaphore.release();
     try {
       while (running) {
+        if (fpsLimiter.limitFPS(fps)) continue;
         synchronized (sync) {
           sync.wait(waitTime);
           if (frameAvailable) {
@@ -166,21 +177,21 @@ public class OffScreenGlThread
             surfaceManager.makeCurrent();
             textureManager.updateFrame();
             textureManager.drawOffScreen();
-            textureManager.drawScreen(encoderWidth, encoderHeight, false, false);
+            textureManager.drawScreen(encoderWidth, encoderHeight, false);
             surfaceManager.swapBuffer();
-            if (takePhotoCallback != null) {
-              takePhotoCallback.onTakePhoto(
-                  GlUtil.getBitmap(encoderWidth, encoderHeight, encoderWidth, encoderHeight));
-              takePhotoCallback = null;
-            }
 
             synchronized (sync) {
               if (surfaceManagerEncoder != null) {
                 surfaceManagerEncoder.makeCurrent();
-                textureManager.drawScreen(encoderWidth, encoderHeight, false, false);
+                textureManager.drawScreen(encoderWidth, encoderHeight, false);
                 long ts = textureManager.getSurfaceTexture().getTimestamp();
                 surfaceManagerEncoder.setPresentationTime(ts);
                 surfaceManagerEncoder.swapBuffer();
+                if (takePhotoCallback != null) {
+                  takePhotoCallback.onTakePhoto(
+                      GlUtil.getBitmap(encoderWidth, encoderHeight, encoderWidth, encoderHeight));
+                  takePhotoCallback = null;
+                }
               }
             }
           }
@@ -190,16 +201,12 @@ public class OffScreenGlThread
           } else if (loadAA) {
             textureManager.enableAA(AAEnabled);
             loadAA = false;
-          } else if (onChangeFace) {
-            textureManager.faceChanged(isFrontCamera);
-            onChangeFace = false;
           }
         }
       }
     } catch (InterruptedException ignore) {
       Thread.currentThread().interrupt();
     } finally {
-      surfaceManager.release();
       textureManager.release();
     }
   }

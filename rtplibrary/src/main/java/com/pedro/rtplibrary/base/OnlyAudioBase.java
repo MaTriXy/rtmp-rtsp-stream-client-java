@@ -55,13 +55,13 @@ public abstract class OnlyAudioBase implements GetAacData, GetMicrophoneData {
 
   /**
    * Same to call:
-   * prepareAudio(128 * 1024, 44100, true, false, false);
+   * prepareAudio(64 * 1024, 32000, true, false, false);
    *
    * @return true if success, false if you get a error (Normally because the encoder selected
    * doesn't support any configuration seated or your device hasn't a AAC encoder).
    */
   public boolean prepareAudio() {
-    return prepareAudio(128 * 1024, 44100, true, false, false);
+    return prepareAudio(64 * 1024, 32000, true, false, false);
   }
 
   protected abstract void startStreamRtp(String url);
@@ -78,10 +78,10 @@ public abstract class OnlyAudioBase implements GetAacData, GetMicrophoneData {
    * RTMPS: rtmps://192.168.1.1:1935/live/pedroSG94
    */
   public void startStream(String url) {
-    audioEncoder.start();
-    microphoneManager.start();
     streaming = true;
     startStreamRtp(url);
+    audioEncoder.start();
+    microphoneManager.start();
   }
 
   protected abstract void stopStreamRtp();
@@ -90,10 +90,10 @@ public abstract class OnlyAudioBase implements GetAacData, GetMicrophoneData {
    * Stop stream started with @startStream.
    */
   public void stopStream() {
-    microphoneManager.stop();
-    stopStreamRtp();
-    audioEncoder.stop();
     streaming = false;
+    stopStreamRtp();
+    microphoneManager.stop();
+    audioEncoder.stop();
   }
 
   /**

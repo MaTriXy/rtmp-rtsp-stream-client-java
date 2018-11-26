@@ -43,11 +43,9 @@ public class ScreenRender {
   private int uSamplerHandle = -1;
   private int uResolutionHandle = -1;
   private int uAAEnabledHandle = -1;
-  private int uOnFlipHandle = -1;
 
   private int streamWidth;
   private int streamHeight;
-  private boolean isFrontCamera = false;
 
   public ScreenRender() {
     squareVertex =
@@ -72,11 +70,10 @@ public class ScreenRender {
     uSamplerHandle = GLES20.glGetUniformLocation(program, "uSampler");
     uResolutionHandle = GLES20.glGetUniformLocation(program, "uResolution");
     uAAEnabledHandle = GLES20.glGetUniformLocation(program, "uAAEnabled");
-    uOnFlipHandle = GLES20.glGetUniformLocation(program, "uOnFlip");
     GlUtil.checkGlError("initGl end");
   }
 
-  public void draw(int width, int height, boolean keepAspectRatio, boolean isFrontFlip) {
+  public void draw(int width, int height, boolean keepAspectRatio) {
     GlUtil.checkGlError("drawScreen start");
 
     if (keepAspectRatio) {
@@ -90,6 +87,9 @@ public class ScreenRender {
     } else {
       GLES20.glViewport(0, 0, width, height);
     }
+    GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    GLES20.glClear(GLES20.GL_DEPTH_BUFFER_BIT | GLES20.GL_COLOR_BUFFER_BIT);
+
     GLES20.glUseProgram(program);
 
     squareVertex.position(BaseRenderOffScreen.SQUARE_VERTEX_DATA_POS_OFFSET);
@@ -106,7 +106,7 @@ public class ScreenRender {
     GLES20.glUniformMatrix4fv(uSTMatrixHandle, 1, false, STMatrix, 0);
     GLES20.glUniform2f(uResolutionHandle, width, height);
     GLES20.glUniform1f(uAAEnabledHandle, AAEnabled ? 1f : 0f);
-    GLES20.glUniform1f(uOnFlipHandle, isFrontFlip && isFrontCamera ? 1f : 0f);
+    //GLES20.glUniform1f(uOnFlipHandle, isFrontFlip && isFrontCamera ? 1f : 0f);
     GLES20.glUniform1i(uSamplerHandle, 5);
     GLES20.glActiveTexture(GLES20.GL_TEXTURE5);
     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId);
@@ -135,9 +135,5 @@ public class ScreenRender {
   public void setStreamSize(int streamWidth, int streamHeight) {
     this.streamWidth = streamWidth;
     this.streamHeight = streamHeight;
-  }
-
-  public void faceChanged(boolean isFrontCamera) {
-    this.isFrontCamera = isFrontCamera;
   }
 }

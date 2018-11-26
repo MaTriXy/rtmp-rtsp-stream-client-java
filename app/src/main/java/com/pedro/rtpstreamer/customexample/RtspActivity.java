@@ -12,6 +12,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -24,6 +25,7 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.Toast;
+import com.pedro.encoder.input.video.CameraHelper;
 import com.pedro.encoder.input.video.CameraOpenException;
 import com.pedro.rtplibrary.rtsp.RtspCamera1;
 import com.pedro.rtpstreamer.R;
@@ -43,7 +45,8 @@ import java.util.Locale;
  * {@link com.pedro.rtplibrary.rtsp.RtspCamera1}
  */
 public class RtspActivity extends AppCompatActivity
-    implements Button.OnClickListener, ConnectCheckerRtsp, SurfaceHolder.Callback {
+    implements Button.OnClickListener, ConnectCheckerRtsp, SurfaceHolder.Callback,
+    View.OnTouchListener {
 
   private Integer[] orientations = new Integer[] { 0, 90, 180, 270 };
 
@@ -60,7 +63,7 @@ public class RtspActivity extends AppCompatActivity
   private ActionBarDrawerToggle actionBarDrawerToggle;
   private RadioGroup rgChannel;
   private RadioButton rbTcp, rbUdp;
-  private Spinner spResolution, spOrientation;
+  private Spinner spResolution;
   private CheckBox cbEchoCanceler, cbNoiseSuppressor, cbHardwareRotation;
   private EditText etVideoBitrate, etFps, etAudioBitrate, etSampleRate, etWowzaUser,
       etWowzaPassword;
@@ -76,6 +79,7 @@ public class RtspActivity extends AppCompatActivity
 
     surfaceView = findViewById(R.id.surfaceView);
     surfaceView.getHolder().addCallback(this);
+    surfaceView.setOnTouchListener(this);
     rtspCamera1 = new RtspCamera1(surfaceView, this);
     prepareOptionsMenuViews();
 
@@ -103,8 +107,8 @@ public class RtspActivity extends AppCompatActivity
 
       public void onDrawerClosed(View view) {
         actionBarDrawerToggle.syncState();
-        if (!lastVideoBitrate.equals(etVideoBitrate.getText().toString())
-            && rtspCamera1.isStreaming()) {
+        if (lastVideoBitrate != null && !lastVideoBitrate.equals(
+            etVideoBitrate.getText().toString()) && rtspCamera1.isStreaming()) {
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             int bitrate = Integer.parseInt(etVideoBitrate.getText().toString()) * 1024;
             rtspCamera1.setVideoBitrateOnFly(bitrate);
@@ -134,14 +138,10 @@ public class RtspActivity extends AppCompatActivity
     rbUdp.setOnClickListener(this);
     //spinners
     spResolution = (Spinner) navigationView.getMenu().findItem(R.id.sp_resolution).getActionView();
-    spOrientation =
-        (Spinner) navigationView.getMenu().findItem(R.id.sp_orientation).getActionView();
 
     ArrayAdapter<Integer> orientationAdapter =
         new ArrayAdapter<>(this, R.layout.support_simple_spinner_dropdown_item);
     orientationAdapter.addAll(orientations);
-    spOrientation.setAdapter(orientationAdapter);
-    spOrientation.setSelection(1);
 
     ArrayAdapter<String> resolutionAdapter =
         new ArrayAdapter<>(this, R.layout.support_simple_spinner_dropdown_item);
@@ -223,25 +223,12 @@ public class RtspActivity extends AppCompatActivity
           } else {
             rtspCamera1.setProtocol(Protocol.UDP);
           }
-          Camera.Size resolution =
-              rtspCamera1.getResolutionsBack().get(spResolution.getSelectedItemPosition());
           String user = etWowzaUser.getText().toString();
           String password = etWowzaPassword.getText().toString();
           if (!user.isEmpty() && !password.isEmpty()) {
             rtspCamera1.setAuthorization(user, password);
           }
-          int width = resolution.width;
-          int height = resolution.height;
-          if (rtspCamera1.isRecording()
-              || rtspCamera1.prepareAudio(
-              Integer.parseInt(etAudioBitrate.getText().toString()) * 1024,
-              Integer.parseInt(etSampleRate.getText().toString()),
-              rgChannel.getCheckedRadioButtonId() == R.id.rb_stereo, cbEchoCanceler.isChecked(),
-              cbNoiseSuppressor.isChecked()) && rtspCamera1.prepareVideo(width, height,
-              Integer.parseInt(etFps.getText().toString()),
-              Integer.parseInt(etVideoBitrate.getText().toString()) * 1024,
-              cbHardwareRotation.isChecked(),
-              orientations[spOrientation.getSelectedItemPosition()])) {
+          if (rtspCamera1.isRecording() || prepareEncoders()) {
             rtspCamera1.startStream(etUrl.getText().toString());
           } else {
             //If you see this all time when you start stream,
@@ -268,7 +255,7 @@ public class RtspActivity extends AppCompatActivity
               SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault());
               currentDateAndTime = sdf.format(new Date());
               if (!rtspCamera1.isStreaming()) {
-                if (rtspCamera1.prepareAudio() && rtspCamera1.prepareVideo()) {
+                if (prepareEncoders()) {
                   rtspCamera1.startRecord(
                       folder.getAbsolutePath() + "/" + currentDateAndTime + ".mp4");
                   bRecord.setText(R.string.stop_record);
@@ -323,6 +310,20 @@ public class RtspActivity extends AppCompatActivity
       default:
         break;
     }
+  }
+
+  private boolean prepareEncoders() {
+    Camera.Size resolution =
+        rtspCamera1.getResolutionsBack().get(spResolution.getSelectedItemPosition());
+    int width = resolution.width;
+    int height = resolution.height;
+    return rtspCamera1.prepareVideo(width, height, Integer.parseInt(etFps.getText().toString()),
+        Integer.parseInt(etVideoBitrate.getText().toString()) * 1024,
+        cbHardwareRotation.isChecked(), CameraHelper.getCameraOrientation(this))
+        && rtspCamera1.prepareAudio(Integer.parseInt(etAudioBitrate.getText().toString()) * 1024,
+        Integer.parseInt(etSampleRate.getText().toString()),
+        rgChannel.getCheckedRadioButtonId() == R.id.rb_stereo, cbEchoCanceler.isChecked(),
+        cbNoiseSuppressor.isChecked());
   }
 
   @Override
@@ -416,9 +417,9 @@ public class RtspActivity extends AppCompatActivity
   public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i1, int i2) {
     rtspCamera1.startPreview();
     // optionally:
-    //rtspCamera1.startPreview(Camera.CameraInfo.CAMERA_FACING_BACK);
+    //rtspCamera1.startPreview(CameraHelper.Facing.BACK);
     //or
-    //rtspCamera1.startPreview(Camera.CameraInfo.CAMERA_FACING_FRONT);
+    //rtspCamera1.startPreview(CameraHelper.Facing.FRONT);
   }
 
   @Override
@@ -436,5 +437,20 @@ public class RtspActivity extends AppCompatActivity
       bStartStop.setText(getResources().getString(R.string.start_button));
     }
     rtspCamera1.stopPreview();
+  }
+
+  @Override
+  public boolean onTouch(View view, MotionEvent motionEvent) {
+    int action = motionEvent.getAction();
+    if (motionEvent.getPointerCount() > 1) {
+      if (action == MotionEvent.ACTION_MOVE) {
+        rtspCamera1.setZoom(motionEvent);
+      }
+    } else {
+      if (action == MotionEvent.ACTION_UP) {
+        // todo place to add autofocus functional.
+      }
+    }
+    return true;
   }
 }

@@ -43,7 +43,7 @@ public abstract class FromFileBase
 
   protected VideoEncoder videoEncoder;
   private AudioEncoder audioEncoder;
-  private GlInterface glInterface;
+  private OffScreenGlThread glInterface;
   private boolean streaming = false;
   private boolean videoEnabled = true;
   //record
@@ -102,21 +102,26 @@ public abstract class FromFileBase
    * doesn't support any configuration seated or your device hasn't a H264 encoder).
    * @throws IOException Normally file not found.
    */
-  public boolean prepareVideo(String filePath, int bitRate) throws IOException {
+  public boolean prepareVideo(String filePath, int bitRate, int rotation) throws IOException {
     videoPath = filePath;
     videoDecoder = new VideoDecoder(videoDecoderInterface, this);
     if (!videoDecoder.initExtractor(filePath)) return false;
     boolean result =
         videoEncoder.prepareVideoEncoder(videoDecoder.getWidth(), videoDecoder.getHeight(), 30,
-            bitRate, 0, true, 2, FormatVideoEncoder.SURFACE);
+            bitRate, rotation, true, 2, FormatVideoEncoder.SURFACE);
     if (context != null) {
       glInterface = new OffScreenGlThread(context);
+      glInterface.setRotation(rotation);
       glInterface.setEncoderSize(videoDecoder.getWidth(), videoDecoder.getHeight());
       glInterface.init();
     } else {
       videoDecoder.prepareVideo(videoEncoder.getInputSurface());
     }
     return result;
+  }
+
+  public boolean prepareVideo(String filePath) throws IOException {
+    return prepareVideo(filePath, 1200 * 1024, 0);
   }
 
   /**
@@ -132,9 +137,16 @@ public abstract class FromFileBase
     if (!audioDecoder.initExtractor(filePath)) return false;
     boolean result = audioEncoder.prepareAudioEncoder(bitRate, audioDecoder.getSampleRate(),
         audioDecoder.isStereo());
+    prepareAudioRtp(audioDecoder.isStereo(), audioDecoder.getSampleRate());
     audioDecoder.prepareAudio();
     return result;
   }
+
+  public boolean prepareAudio(String filePath) throws IOException {
+    return prepareAudio(filePath, 64 * 1024);
+  }
+
+  protected abstract void prepareAudioRtp(boolean isStereo, int sampleRate);
 
   /**
    * @param forceVideo force type codec used. FIRST_COMPATIBLE_FOUND, SOFTWARE, HARDWARE
@@ -151,21 +163,12 @@ public abstract class FromFileBase
    * @throws IOException If you init it before start stream.
    */
   public void startRecord(String path) throws IOException {
-    if (streaming) {
-      mediaMuxer = new MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
-      videoTrack = mediaMuxer.addTrack(videoFormat);
-      audioTrack = mediaMuxer.addTrack(audioFormat);
-      mediaMuxer.start();
-      recording = true;
-      if (videoEncoder.isRunning()) {
-        if (glInterface != null) glInterface.removeMediaCodecSurface();
-        videoEncoder.reset();
-        if (glInterface != null) {
-          glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
-        }
-      }
-    } else {
-      throw new IOException("Need be called while stream");
+    mediaMuxer = new MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+    recording = true;
+    if (!streaming) {
+      startEncoders();
+    } else if (videoEncoder.isRunning()) {
+      resetVideoEncoder();
     }
   }
 
@@ -184,6 +187,7 @@ public abstract class FromFileBase
     }
     videoTrack = -1;
     audioTrack = -1;
+    if (!streaming) stopStream();
   }
 
   protected abstract void startStreamRtp(String url);
@@ -200,17 +204,48 @@ public abstract class FromFileBase
    * RTMPS: rtmps://192.168.1.1:1935/live/pedroSG94
    */
   public void startStream(String url) {
+    streaming = true;
     startStreamRtp(url);
-    if (context != null) {
-      glInterface.start(false);
-      glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
-      videoDecoder.prepareVideo(glInterface.getSurface());
+    if (!recording) {
+      startEncoders();
+    } else {
+      resetVideoEncoder();
     }
+  }
+
+  private void startEncoders() {
     videoEncoder.start();
     audioEncoder.start();
     videoDecoder.start();
     audioDecoder.start();
-    streaming = true;
+  }
+
+  private void resetVideoEncoder() {
+    try {
+      if (context != null) {
+        glInterface.removeMediaCodecSurface();
+        glInterface.stop();
+      }
+      double time = videoDecoder.getTime();
+      videoDecoder.stop();
+      videoDecoder = new VideoDecoder(videoDecoderInterface, this);
+      if (!videoDecoder.initExtractor(videoPath)) {
+        throw new IOException("fail to reset video file");
+      }
+      videoEncoder.reset();
+      if (context != null) {
+        glInterface.setFps(videoEncoder.getFps());
+        glInterface.start();
+        glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
+        videoDecoder.prepareVideo(glInterface.getSurface());
+      } else {
+        videoDecoder.prepareVideo(videoEncoder.getInputSurface());
+      }
+      videoDecoder.start();
+      videoDecoder.moveTo(time);
+    } catch (IOException e) {
+      Log.e(TAG, "Error", e);
+    }
   }
 
   protected abstract void stopStreamRtp();
@@ -219,16 +254,22 @@ public abstract class FromFileBase
    * Stop stream started with @startStream.
    */
   public void stopStream() {
-    stopStreamRtp();
-    if (context != null) {
-      glInterface.removeMediaCodecSurface();
-      glInterface.stop();
+    if (streaming) {
+      streaming = false;
+      stopStreamRtp();
     }
-    videoDecoder.stop();
-    audioDecoder.stop();
-    videoEncoder.stop();
-    audioEncoder.stop();
-    streaming = false;
+    if (!recording) {
+      if (context != null) {
+        glInterface.removeMediaCodecSurface();
+        glInterface.stop();
+      }
+      if (videoDecoder != null) videoDecoder.stop();
+      if (audioDecoder != null) audioDecoder.stop();
+      videoEncoder.stop();
+      audioEncoder.stop();
+      videoFormat = null;
+      audioFormat = null;
+    }
   }
 
   /**
@@ -297,7 +338,7 @@ public abstract class FromFileBase
   }
 
   /**
-   * Se video bitrate of H264 in kb while stream.
+   * Set video bitrate of H264 in kb while stream.
    *
    * @param bitrate H264 in kb.
    */
@@ -305,6 +346,16 @@ public abstract class FromFileBase
     if (Build.VERSION.SDK_INT >= 19) {
       videoEncoder.setVideoBitrateOnFly(bitrate);
     }
+  }
+
+  /**
+   * Set limit FPS while stream. This will be override when you call to prepareVideo method.
+   * This could produce a change in iFrameInterval.
+   *
+   * @param fps frames per second
+   */
+  public void setLimitFPSOnFly(int fps) {
+    videoEncoder.setFps(fps);
   }
 
   /**
@@ -378,7 +429,8 @@ public abstract class FromFileBase
             throw new IOException("fail to reset video file");
           }
           if (context != null) {
-            glInterface.start(false);
+            glInterface.setFps(videoEncoder.getFps());
+            glInterface.start();
             glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
             videoDecoder.prepareVideo(glInterface.getSurface());
           } else {
@@ -409,7 +461,7 @@ public abstract class FromFileBase
 
   @Override
   public void onSPSandPPS(ByteBuffer sps, ByteBuffer pps) {
-    onSPSandPPSRtp(sps, pps);
+    if (streaming) onSPSandPPSRtp(sps, pps);
   }
 
   protected abstract void getH264DataRtp(ByteBuffer h264Buffer, MediaCodec.BufferInfo info);
@@ -417,12 +469,18 @@ public abstract class FromFileBase
   @Override
   public void getH264Data(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
     if (recording) {
-      if (info.flags == MediaCodec.BUFFER_FLAG_KEY_FRAME) canRecord = true;
-      if (canRecord) {
-        mediaMuxer.writeSampleData(videoTrack, h264Buffer, info);
+      if (info.flags == MediaCodec.BUFFER_FLAG_KEY_FRAME
+          && !canRecord
+          && videoFormat != null
+          && audioFormat != null) {
+        videoTrack = mediaMuxer.addTrack(videoFormat);
+        audioTrack = mediaMuxer.addTrack(audioFormat);
+        mediaMuxer.start();
+        canRecord = true;
       }
+      if (canRecord) mediaMuxer.writeSampleData(videoTrack, h264Buffer, info);
     }
-    getH264DataRtp(h264Buffer, info);
+    if (streaming) getH264DataRtp(h264Buffer, info);
   }
 
   @Override
@@ -437,7 +495,7 @@ public abstract class FromFileBase
     if (recording && canRecord) {
       mediaMuxer.writeSampleData(audioTrack, aacBuffer, info);
     }
-    getAacDataRtp(aacBuffer, info);
+    if (streaming) getAacDataRtp(aacBuffer, info);
   }
 
   @Override

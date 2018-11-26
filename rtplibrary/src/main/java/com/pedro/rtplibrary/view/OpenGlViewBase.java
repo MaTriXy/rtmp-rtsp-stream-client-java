@@ -38,11 +38,9 @@ public abstract class OpenGlViewBase extends SurfaceView
   protected final Object sync = new Object();
   protected int previewWidth, previewHeight;
   protected int encoderWidth, encoderHeight;
-  protected boolean onChangeFace = false;
-  protected boolean isFrontCamera = false;
-  protected boolean isCamera2Landscape = false;
   protected int waitTime;
   protected TakePhotoCallback takePhotoCallback;
+  protected int rotation = 0;
 
   public OpenGlViewBase(Context context) {
     super(context);
@@ -62,6 +60,11 @@ public abstract class OpenGlViewBase extends SurfaceView
 
   @Override
   public abstract Surface getSurface();
+
+  @Override
+  public void setRotation(int rotation) {
+    this.rotation = rotation;
+  }
 
   @Override
   public void takePhoto(TakePhotoCallback takePhotoCallback) {
@@ -91,39 +94,38 @@ public abstract class OpenGlViewBase extends SurfaceView
   }
 
   @Override
-  public void setCameraFace(boolean frontCamera) {
-    onChangeFace = true;
-    isFrontCamera = frontCamera;
-  }
-
-  @Override
   public void setEncoderSize(int width, int height) {
     this.encoderWidth = width;
     this.encoderHeight = height;
   }
 
   @Override
-  public void start(boolean isCamera2Landscape) {
-    this.isCamera2Landscape = isCamera2Landscape;
-    Log.i(TAG, "Thread started.");
-    thread = new Thread(this);
-    running = true;
-    thread.start();
-    semaphore.acquireUninterruptibly();
+  public void start() {
+    synchronized (sync) {
+      Log.i(TAG, "Thread started.");
+      thread = new Thread(this);
+      running = true;
+      thread.start();
+      semaphore.acquireUninterruptibly();
+    }
   }
 
   @Override
   public void stop() {
-    if (thread != null) {
-      thread.interrupt();
-      try {
-        thread.join(1000);
-      } catch (InterruptedException e) {
+    synchronized (sync) {
+      if (thread != null) {
         thread.interrupt();
+        try {
+          thread.join(1000);
+        } catch (InterruptedException e) {
+          thread.interrupt();
+        }
+        thread = null;
       }
-      thread = null;
+      surfaceManager.release();
+      running = false;
+      rotation = 0;
     }
-    running = false;
   }
 
   @Override

@@ -1,13 +1,14 @@
 package com.pedro.rtplibrary.base;
 
 import android.content.Context;
-import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraMetadata;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
 import android.os.Build;
 import android.support.annotation.RequiresApi;
 import android.util.Size;
+import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.TextureView;
@@ -17,6 +18,7 @@ import com.pedro.encoder.input.audio.GetMicrophoneData;
 import com.pedro.encoder.input.audio.MicrophoneManager;
 import com.pedro.encoder.input.video.Camera2ApiManager;
 import com.pedro.encoder.input.video.Camera2Facing;
+import com.pedro.encoder.input.video.CameraHelper;
 import com.pedro.encoder.input.video.CameraOpenException;
 import com.pedro.encoder.utils.CodecUtil;
 import com.pedro.encoder.video.FormatVideoEncoder;
@@ -110,6 +112,31 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
   }
 
   /**
+   * Experimental
+   */
+  public void enableFaceDetection(Camera2ApiManager.FaceDetectorCallback faceDetectorCallback) {
+    cameraManager.enableFaceDetection(faceDetectorCallback);
+  }
+
+  /**
+   * Experimental
+   */
+  public void disableFaceDetection() {
+    cameraManager.disableFaceDetection();
+  }
+
+  /**
+   * Experimental
+   */
+  public boolean isFaceDetectionEnabled() {
+    return cameraManager.isFaceDetectionEnabled();
+  }
+
+  public boolean isFrontCamera() {
+    return cameraManager.isFrontCamera();
+  }
+
+  /**
    * Basic auth developed to work with Wowza. No tested with other server
    *
    * @param user auth.
@@ -185,19 +212,19 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
    */
   public boolean prepareVideo() {
     boolean isHardwareRotation = glInterface == null;
-    int orientation = (context.getResources().getConfiguration().orientation == 1) ? 90 : 0;
-    return prepareVideo(640, 480, 30, 1200 * 1024, isHardwareRotation, orientation);
+    int rotation = CameraHelper.getCameraOrientation(context);
+    return prepareVideo(640, 480, 30, 1200 * 1024, isHardwareRotation, rotation);
   }
 
   /**
    * Same to call:
-   * prepareAudio(128 * 1024, 44100, true, false, false);
+   * prepareAudio(64 * 1024, 32000, true, false, false);
    *
    * @return true if success, false if you get a error (Normally because the encoder selected
    * doesn't support any configuration seated or your device hasn't a AAC encoder).
    */
   public boolean prepareAudio() {
-    return prepareAudio(128 * 1024, 44100, true, false, false);
+    return prepareAudio(64 * 1024, 32000, true, false, false);
   }
 
   /**
@@ -238,8 +265,6 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
       }
       mediaMuxer = null;
     }
-    videoFormat = null;
-    audioFormat = null;
     videoTrack = -1;
     audioTrack = -1;
     if (!streaming) stopStream();
@@ -253,7 +278,8 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
    * {@link android.hardware.camera2.CameraMetadata#LENS_FACING_BACK}
    * {@link android.hardware.camera2.CameraMetadata#LENS_FACING_FRONT}
    */
-  public void startPreview(@Camera2Facing int cameraFacing) {
+  @Deprecated
+  public void startPreview(@Camera2Facing int cameraFacing, int rotation) {
     if (!isStreaming() && !onPreview && !isBackground) {
       if (surfaceView != null) {
         cameraManager.prepareCamera(surfaceView.getHolder().getSurface());
@@ -266,16 +292,31 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
         } else {
           glInterface.setEncoderSize(videoEncoder.getHeight(), videoEncoder.getWidth());
         }
-        glInterface.start(isCamera2Landscape);
+        glInterface.setRotation(rotation == 0 ? 270 : rotation - 90);
+        glInterface.start();
         cameraManager.prepareCamera(glInterface.getSurfaceTexture(), videoEncoder.getWidth(),
             videoEncoder.getHeight());
       }
       cameraManager.openCameraFacing(cameraFacing);
-      if (glInterface != null) {
-        glInterface.setCameraFace(cameraManager.isFrontCamera());
-      }
       onPreview = true;
     }
+  }
+
+  public void startPreview(CameraHelper.Facing cameraFacing, int rotation) {
+    int facing = cameraFacing == CameraHelper.Facing.BACK ? CameraMetadata.LENS_FACING_BACK
+        : CameraMetadata.LENS_FACING_FRONT;
+    startPreview(facing, rotation);
+  }
+
+  @Deprecated
+  public void startPreview(@Camera2Facing int cameraFacing) {
+    startPreview(cameraFacing, CameraHelper.getCameraOrientation(context));
+  }
+
+  public void startPreview(CameraHelper.Facing cameraFacing) {
+    int facing = cameraFacing == CameraHelper.Facing.BACK ? CameraMetadata.LENS_FACING_BACK
+        : CameraMetadata.LENS_FACING_FRONT;
+    startPreview(facing);
   }
 
   /**
@@ -284,7 +325,7 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
    * CameraFacing will be always back.
    */
   public void startPreview() {
-    startPreview(CameraCharacteristics.LENS_FACING_BACK);
+    startPreview(CameraHelper.Facing.BACK);
   }
 
   /**
@@ -317,13 +358,13 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
    * RTMPS: rtmps://192.168.1.1:1935/live/pedroSG94
    */
   public void startStream(String url) {
+    streaming = true;
     startStreamRtp(url);
     if (!recording) {
       startEncoders();
     } else {
       resetVideoEncoder();
     }
-    streaming = true;
     onPreview = true;
   }
 
@@ -337,9 +378,7 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
     } else {
       cameraManager.openCameraBack();
     }
-    if (glInterface != null) {
-      glInterface.setCameraFace(cameraManager.isFrontCamera());
-    }
+    onPreview = true;
   }
 
   private void resetVideoEncoder() {
@@ -354,18 +393,17 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
     if (glInterface != null && videoEnabled) {
       if (glInterface instanceof OffScreenGlThread) {
         glInterface = new OffScreenGlThread(context);
+        ((OffScreenGlThread) glInterface).setFps(videoEncoder.getFps());
       }
       glInterface.init();
-      boolean rotate;
       if (videoEncoder.getRotation() == 90 || videoEncoder.getRotation() == 270) {
         glInterface.setEncoderSize(videoEncoder.getHeight(), videoEncoder.getWidth());
-        rotate = false;
       } else {
         glInterface.setEncoderSize(videoEncoder.getWidth(), videoEncoder.getHeight());
-        rotate = true;
       }
-      boolean isCamera2Landscape = context.getResources().getConfiguration().orientation != 1;
-      glInterface.start((glInterface instanceof OffScreenGlThread) ? isCamera2Landscape : rotate);
+      int rotation = videoEncoder.getRotation();
+      glInterface.setRotation(rotation == 0 ? 270 : rotation - 90);
+      glInterface.start();
       if (videoEncoder.getInputSurface() != null) {
         glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
       }
@@ -380,13 +418,18 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
    * Stop stream started with @startStream.
    */
   public void stopStream() {
-    if (streaming) stopStreamRtp();
+    if (streaming) {
+      streaming = false;
+      stopStreamRtp();
+    }
     if (!recording) {
       cameraManager.closeCamera(!isBackground);
       onPreview = !isBackground;
       microphoneManager.stop();
       videoEncoder.stop();
       audioEncoder.stop();
+      videoFormat = null;
+      audioFormat = null;
       if (glInterface != null) {
         glInterface.removeMediaCodecSurface();
         if (glInterface instanceof OffScreenGlThread) {
@@ -395,7 +438,6 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
         }
       }
     }
-    streaming = false;
   }
 
   /**
@@ -465,6 +507,15 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
     videoEnabled = true;
   }
 
+  /**
+   * Set zoomIn or zoomOut to camera.
+   *
+   * @param event motion event. Expected to get event.getPointerCount() > 1
+   */
+  public void setZoom(MotionEvent event) {
+    cameraManager.setZoom(event);
+  }
+
   public int getBitrate() {
     return videoEncoder.getBitRate();
   }
@@ -489,9 +540,6 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
   public void switchCamera() throws CameraOpenException {
     if (isStreaming() || onPreview) {
       cameraManager.switchCamera();
-      if (glInterface != null) {
-        glInterface.setCameraFace(cameraManager.isFrontCamera());
-      }
     }
   }
 
@@ -516,12 +564,22 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
   }
 
   /**
-   * Se video bitrate of H264 in kb while stream.
+   * Set video bitrate of H264 in kb while stream.
    *
    * @param bitrate H264 in kb.
    */
   public void setVideoBitrateOnFly(int bitrate) {
     videoEncoder.setVideoBitrateOnFly(bitrate);
+  }
+
+  /**
+   * Set limit FPS while stream. This will be override when you call to prepareVideo method.
+   * This could produce a change in iFrameInterval.
+   *
+   * @param fps frames per second
+   */
+  public void setLimitFPSOnFly(int fps) {
+    videoEncoder.setFps(fps);
   }
 
   /**
