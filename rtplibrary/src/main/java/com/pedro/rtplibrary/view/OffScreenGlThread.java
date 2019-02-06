@@ -40,12 +40,10 @@ public class OffScreenGlThread
   private boolean loadAA = false;
 
   private boolean AAEnabled = false;
-  private int waitTime = 10;
   private int fps = 30;
   private FpsLimiter fpsLimiter = new FpsLimiter();
   //used with camera
   private TakePhotoCallback takePhotoCallback;
-  private int rotation = 0;
 
   public OffScreenGlThread(Context context) {
     this.context = context;
@@ -117,17 +115,12 @@ public class OffScreenGlThread
 
   @Override
   public void setRotation(int rotation) {
-    this.rotation = rotation;
+    textureManager.setCameraRotation(rotation);
   }
 
   @Override
   public boolean isAAEnabled() {
     return textureManager != null && textureManager.isAAEnabled();
-  }
-
-  @Override
-  public void setWaitTime(int waitTime) {
-    this.waitTime = waitTime;
   }
 
   @Override
@@ -146,68 +139,72 @@ public class OffScreenGlThread
       if (thread != null) {
         thread.interrupt();
         try {
-          thread.join(1000);
+          thread.join(100);
         } catch (InterruptedException e) {
           thread.interrupt();
         }
         thread = null;
       }
-      fpsLimiter.reset();
-      surfaceManager.release();
       running = false;
+      fpsLimiter.reset();
+    }
+  }
+
+  private void releaseSurfaceManager() {
+    if (surfaceManager != null) {
+      surfaceManager.release();
+      surfaceManager = null;
     }
   }
 
   @Override
   public void run() {
+    releaseSurfaceManager();
     surfaceManager = new SurfaceManager();
     surfaceManager.makeCurrent();
     textureManager.setStreamSize(encoderWidth, encoderHeight);
-    textureManager.setCameraRotation(rotation);
     textureManager.initGl(encoderWidth, encoderHeight, context);
     textureManager.getSurfaceTexture().setOnFrameAvailableListener(this);
     semaphore.release();
     try {
       while (running) {
         if (fpsLimiter.limitFPS(fps)) continue;
-        synchronized (sync) {
-          sync.wait(waitTime);
-          if (frameAvailable) {
-            frameAvailable = false;
-            surfaceManager.makeCurrent();
-            textureManager.updateFrame();
-            textureManager.drawOffScreen();
-            textureManager.drawScreen(encoderWidth, encoderHeight, false);
-            surfaceManager.swapBuffer();
+        if (frameAvailable) {
+          frameAvailable = false;
+          surfaceManager.makeCurrent();
+          textureManager.updateFrame();
+          textureManager.drawOffScreen();
+          textureManager.drawScreen(encoderWidth, encoderHeight, false);
+          surfaceManager.swapBuffer();
 
-            synchronized (sync) {
-              if (surfaceManagerEncoder != null) {
-                surfaceManagerEncoder.makeCurrent();
-                textureManager.drawScreen(encoderWidth, encoderHeight, false);
-                long ts = textureManager.getSurfaceTexture().getTimestamp();
-                surfaceManagerEncoder.setPresentationTime(ts);
-                surfaceManagerEncoder.swapBuffer();
-                if (takePhotoCallback != null) {
-                  takePhotoCallback.onTakePhoto(
-                      GlUtil.getBitmap(encoderWidth, encoderHeight, encoderWidth, encoderHeight));
-                  takePhotoCallback = null;
-                }
+          synchronized (sync) {
+            if (surfaceManagerEncoder != null) {
+              surfaceManagerEncoder.makeCurrent();
+              textureManager.drawScreen(encoderWidth, encoderHeight, false);
+              long ts = textureManager.getSurfaceTexture().getTimestamp();
+              surfaceManagerEncoder.setPresentationTime(ts);
+              surfaceManagerEncoder.swapBuffer();
+              if (takePhotoCallback != null) {
+                takePhotoCallback.onTakePhoto(
+                    GlUtil.getBitmap(encoderWidth, encoderHeight, encoderWidth, encoderHeight));
+                takePhotoCallback = null;
               }
             }
           }
-          if (!filterQueue.isEmpty()) {
-            Filter filter = filterQueue.poll();
-            textureManager.setFilter(filter.getPosition(), filter.getBaseFilterRender());
-          } else if (loadAA) {
-            textureManager.enableAA(AAEnabled);
-            loadAA = false;
-          }
+        }
+        if (!filterQueue.isEmpty()) {
+          Filter filter = filterQueue.take();
+          textureManager.setFilter(filter.getPosition(), filter.getBaseFilterRender());
+        } else if (loadAA) {
+          textureManager.enableAA(AAEnabled);
+          loadAA = false;
         }
       }
     } catch (InterruptedException ignore) {
       Thread.currentThread().interrupt();
     } finally {
       textureManager.release();
+      releaseSurfaceManager();
     }
   }
 

@@ -28,7 +28,7 @@ public class Body {
       -1,   // 15
   };
 
-  public static String createAudioBody(int trackAudio, int sampleRate, boolean isStereo) {
+  public static String createAacBody(int trackAudio, int sampleRate, boolean isStereo) {
     int sampleRateNum = -1;
     for (int i = 0; i < AUDIO_SAMPLING_RATES.length; i++) {
       if (AUDIO_SAMPLING_RATES[i] == sampleRate) {
@@ -38,14 +38,12 @@ public class Body {
     }
     int channel = (isStereo) ? 2 : 1;
     int config = (2 & 0x1F) << 11 | (sampleRateNum & 0x0F) << 7 | (channel & 0x0F) << 3;
-    return "m=audio "
-        + (5000 + 2 * trackAudio)
-        + " RTP/AVP "
+    return "m=audio 0 RTP/AVP "
         + RtpConstants.payloadType
         + "\r\n"
         + "a=rtpmap:"
         + RtpConstants.payloadType
-        + " mpeg4-generic/"
+        + " MPEG4-GENERIC/"
         + sampleRate
         + "/"
         + channel
@@ -60,10 +58,8 @@ public class Body {
         + "\r\n";
   }
 
-  public static String createVideoBody(int trackVideo, String sps, String pps) {
-    return "m=video "
-        + (5000 + 2 * trackVideo)
-        + " RTP/AVP "
+  public static String createH264Body(int trackVideo, String sps, String pps) {
+    return "m=video 0 RTP/AVP "
         + RtpConstants.payloadType
         + "\r\n"
         + "a=rtpmap:"
@@ -77,6 +73,29 @@ public class Body {
         + sps
         + ","
         + pps
+        + ";\r\n"
+        + "a=control:trackID="
+        + trackVideo
+        + "\r\n";
+  }
+
+  public static String createH265Body(int trackVideo, String sps, String pps, String vps) {
+    return "m=video 0 RTP/AVP "
+        + RtpConstants.payloadType
+        + "\r\n"
+        + "a=rtpmap:"
+        + RtpConstants.payloadType
+        + " H265/"
+        + RtpConstants.clockVideoFrequency
+        + "\r\n"
+        + "a=fmtp:"
+        + RtpConstants.payloadType
+        + " sprop-sps="
+        + sps
+        + "; sprop-pps="
+        + pps
+        + "; sprop-vps="
+        + vps
         + ";\r\n"
         + "a=control:trackID="
         + trackVideo

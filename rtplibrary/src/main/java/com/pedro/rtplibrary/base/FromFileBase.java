@@ -1,6 +1,9 @@
 package com.pedro.rtplibrary.base;
 
 import android.content.Context;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioTrack;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
@@ -17,10 +20,12 @@ import com.pedro.encoder.input.decoder.VideoDecoder;
 import com.pedro.encoder.input.decoder.VideoDecoderInterface;
 import com.pedro.encoder.utils.CodecUtil;
 import com.pedro.encoder.video.FormatVideoEncoder;
-import com.pedro.encoder.video.GetH264Data;
+import com.pedro.encoder.video.GetVideoData;
 import com.pedro.encoder.video.VideoEncoder;
 import com.pedro.rtplibrary.view.GlInterface;
+import com.pedro.rtplibrary.view.LightOpenGlView;
 import com.pedro.rtplibrary.view.OffScreenGlThread;
+import com.pedro.rtplibrary.view.OpenGlView;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -36,14 +41,14 @@ import java.nio.ByteBuffer;
 
 @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
 public abstract class FromFileBase
-    implements GetH264Data, GetAacData, GetMicrophoneData, LoopFileInterface {
+    implements GetVideoData, GetAacData, GetMicrophoneData, LoopFileInterface {
 
   private static final String TAG = "FromFileBase";
   private Context context;
 
   protected VideoEncoder videoEncoder;
   private AudioEncoder audioEncoder;
-  private OffScreenGlThread glInterface;
+  private GlInterface glInterface;
   private boolean streaming = false;
   private boolean videoEnabled = true;
   //record
@@ -63,6 +68,7 @@ public abstract class FromFileBase
 
   private String videoPath, audioPath;
   private final Object sync = new Object();
+  private AudioTrack audioTrackPlayer;
 
   public FromFileBase(VideoDecoderInterface videoDecoderInterface,
       AudioDecoderInterface audioDecoderInterface) {
@@ -76,6 +82,23 @@ public abstract class FromFileBase
       AudioDecoderInterface audioDecoderInterface) {
     this.context = context;
     glInterface = new OffScreenGlThread(context);
+    glInterface.init();
+    init(videoDecoderInterface, audioDecoderInterface);
+  }
+
+  public FromFileBase(OpenGlView openGlView, VideoDecoderInterface videoDecoderInterface,
+      AudioDecoderInterface audioDecoderInterface) {
+    context = openGlView.getContext();
+    glInterface = openGlView;
+    glInterface.init();
+    init(videoDecoderInterface, audioDecoderInterface);
+  }
+
+  public FromFileBase(LightOpenGlView lightOpenGlView, VideoDecoderInterface videoDecoderInterface,
+      AudioDecoderInterface audioDecoderInterface) {
+    context = lightOpenGlView.getContext();
+    glInterface = lightOpenGlView;
+    glInterface.init();
     init(videoDecoderInterface, audioDecoderInterface);
   }
 
@@ -106,18 +129,9 @@ public abstract class FromFileBase
     videoPath = filePath;
     videoDecoder = new VideoDecoder(videoDecoderInterface, this);
     if (!videoDecoder.initExtractor(filePath)) return false;
-    boolean result =
-        videoEncoder.prepareVideoEncoder(videoDecoder.getWidth(), videoDecoder.getHeight(), 30,
-            bitRate, rotation, true, 2, FormatVideoEncoder.SURFACE);
-    if (context != null) {
-      glInterface = new OffScreenGlThread(context);
-      glInterface.setRotation(rotation);
-      glInterface.setEncoderSize(videoDecoder.getWidth(), videoDecoder.getHeight());
-      glInterface.init();
-    } else {
-      videoDecoder.prepareVideo(videoEncoder.getInputSurface());
-    }
-    return result;
+    boolean hardwareRotation = glInterface == null;
+    return videoEncoder.prepareVideoEncoder(videoDecoder.getWidth(), videoDecoder.getHeight(), 30,
+        bitRate, rotation, hardwareRotation, 2, FormatVideoEncoder.SURFACE);
   }
 
   public boolean prepareVideo(String filePath) throws IOException {
@@ -139,6 +153,15 @@ public abstract class FromFileBase
         audioDecoder.isStereo());
     prepareAudioRtp(audioDecoder.isStereo(), audioDecoder.getSampleRate());
     audioDecoder.prepareAudio();
+    if (glInterface != null && !(glInterface instanceof OffScreenGlThread)) {
+      int channel =
+          audioDecoder.isStereo() ? AudioFormat.CHANNEL_OUT_STEREO : AudioFormat.CHANNEL_OUT_MONO;
+      int buffSize = AudioTrack.getMinBufferSize(audioDecoder.getSampleRate(), channel,
+          AudioFormat.ENCODING_PCM_16BIT);
+      audioTrackPlayer =
+          new AudioTrack(AudioManager.STREAM_MUSIC, audioDecoder.getSampleRate(), channel,
+              AudioFormat.ENCODING_PCM_16BIT, buffSize, AudioTrack.MODE_STREAM);
+    }
     return result;
   }
 
@@ -205,24 +228,49 @@ public abstract class FromFileBase
    */
   public void startStream(String url) {
     streaming = true;
-    startStreamRtp(url);
     if (!recording) {
       startEncoders();
     } else {
       resetVideoEncoder();
     }
+    startStreamRtp(url);
   }
 
   private void startEncoders() {
     videoEncoder.start();
+    if (audioTrackPlayer != null) audioTrackPlayer.play();
     audioEncoder.start();
+    prepareGlView();
     videoDecoder.start();
     audioDecoder.start();
   }
 
+  private void prepareGlView() {
+    if (glInterface != null && Build.VERSION.SDK_INT >= 18) {
+      if (glInterface instanceof OffScreenGlThread) {
+        glInterface = new OffScreenGlThread(context);
+        glInterface.init();
+        ((OffScreenGlThread) glInterface).setFps(videoEncoder.getFps());
+      }
+      if (videoEncoder.getRotation() == 90 || videoEncoder.getRotation() == 270) {
+        glInterface.setEncoderSize(videoEncoder.getHeight(), videoEncoder.getWidth());
+      } else {
+        glInterface.setEncoderSize(videoEncoder.getWidth(), videoEncoder.getHeight());
+      }
+      glInterface.setRotation(0);
+      glInterface.start();
+      if (videoEncoder.getInputSurface() != null) {
+        glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
+      }
+      videoDecoder.prepareVideo(glInterface.getSurface());
+    } else {
+      videoDecoder.prepareVideo(videoEncoder.getInputSurface());
+    }
+  }
+
   private void resetVideoEncoder() {
     try {
-      if (context != null) {
+      if (glInterface != null) {
         glInterface.removeMediaCodecSurface();
         glInterface.stop();
       }
@@ -233,14 +281,7 @@ public abstract class FromFileBase
         throw new IOException("fail to reset video file");
       }
       videoEncoder.reset();
-      if (context != null) {
-        glInterface.setFps(videoEncoder.getFps());
-        glInterface.start();
-        glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
-        videoDecoder.prepareVideo(glInterface.getSurface());
-      } else {
-        videoDecoder.prepareVideo(videoEncoder.getInputSurface());
-      }
+      prepareGlView();
       videoDecoder.start();
       videoDecoder.moveTo(time);
     } catch (IOException e) {
@@ -259,12 +300,17 @@ public abstract class FromFileBase
       stopStreamRtp();
     }
     if (!recording) {
-      if (context != null) {
+      if (glInterface != null) {
         glInterface.removeMediaCodecSurface();
         glInterface.stop();
       }
       if (videoDecoder != null) videoDecoder.stop();
       if (audioDecoder != null) audioDecoder.stop();
+      if (audioTrackPlayer != null
+          && audioTrackPlayer.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+        audioTrackPlayer.stop();
+      }
+      audioTrackPlayer = null;
       videoEncoder.stop();
       audioEncoder.stop();
       videoFormat = null;
@@ -419,7 +465,7 @@ public abstract class FromFileBase
     synchronized (sync) {
       try {
         if (isVideo) {
-          if (context != null) {
+          if (glInterface != null) {
             glInterface.removeMediaCodecSurface();
             glInterface.stop();
           }
@@ -428,14 +474,7 @@ public abstract class FromFileBase
           if (!videoDecoder.initExtractor(videoPath)) {
             throw new IOException("fail to reset video file");
           }
-          if (context != null) {
-            glInterface.setFps(videoEncoder.getFps());
-            glInterface.start();
-            glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
-            videoDecoder.prepareVideo(glInterface.getSurface());
-          } else {
-            videoDecoder.prepareVideo(videoEncoder.getInputSurface());
-          }
+          prepareGlView();
           videoDecoder.start();
         } else {
           audioDecoder.stop();
@@ -457,17 +496,22 @@ public abstract class FromFileBase
     }
   }
 
-  protected abstract void onSPSandPPSRtp(ByteBuffer sps, ByteBuffer pps);
+  protected abstract void onSpsPpsVpsRtp(ByteBuffer sps, ByteBuffer pps, ByteBuffer vps);
 
   @Override
-  public void onSPSandPPS(ByteBuffer sps, ByteBuffer pps) {
-    if (streaming) onSPSandPPSRtp(sps, pps);
+  public void onSpsPps(ByteBuffer sps, ByteBuffer pps) {
+    if (streaming) onSpsPpsVpsRtp(sps, pps, null);
+  }
+
+  @Override
+  public void onSpsPpsVps(ByteBuffer sps, ByteBuffer pps, ByteBuffer vps) {
+    if (streaming) onSpsPpsVpsRtp(sps, pps, vps);
   }
 
   protected abstract void getH264DataRtp(ByteBuffer h264Buffer, MediaCodec.BufferInfo info);
 
   @Override
-  public void getH264Data(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
+  public void getVideoData(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
     if (recording) {
       if (info.flags == MediaCodec.BUFFER_FLAG_KEY_FRAME
           && !canRecord
@@ -505,6 +549,7 @@ public abstract class FromFileBase
 
   @Override
   public void inputPCMData(byte[] buffer, int size) {
+    if (audioTrackPlayer != null) audioTrackPlayer.write(buffer, 0, size);
     audioEncoder.inputPCMData(buffer, size);
   }
 }

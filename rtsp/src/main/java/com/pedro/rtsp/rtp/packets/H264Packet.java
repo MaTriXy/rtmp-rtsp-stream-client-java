@@ -5,6 +5,11 @@ import com.pedro.rtsp.rtsp.RtpFrame;
 import com.pedro.rtsp.utils.RtpConstants;
 import java.nio.ByteBuffer;
 
+/**
+ * Created by pedro on 27/11/18.
+ *
+ * RFC 3984
+ */
 public class H264Packet extends BasePacket {
 
   private byte[] header = new byte[5];
@@ -15,9 +20,10 @@ public class H264Packet extends BasePacket {
     super(RtpConstants.clockVideoFrequency);
     this.videoPacketCallback = videoPacketCallback;
     channelIdentifier = (byte) 2;
-    setSPSandPPS(sps, pps);
+    setSpsPps(sps, pps);
   }
 
+  @Override
   public void createAndSendPacket(ByteBuffer byteBuffer, MediaCodec.BufferInfo bufferInfo) {
     // We read a NAL units from ByteBuffer and we send them
     // NAL units are preceded with 0x00000001
@@ -62,7 +68,7 @@ public class H264Packet extends BasePacket {
     else {
       // Set FU-A header
       header[1] = (byte) (header[4] & 0x1F);  // FU header type
-      header[1] += 0x80; // Start bit
+      header[1] += 0x80; // set start bit to 1
       // Set FU-A indicator
       header[0] = (byte) ((header[4] & 0x60) & 0xFF); // FU indicator NRI
       header[0] += 28;
@@ -99,7 +105,7 @@ public class H264Packet extends BasePacket {
     }
   }
 
-  private void setSPSandPPS(byte[] sps, byte[] pps) {
+  private void setSpsPps(byte[] sps, byte[] pps) {
     stapA = new byte[sps.length + pps.length + 5];
 
     // STAP-A NAL header is 24

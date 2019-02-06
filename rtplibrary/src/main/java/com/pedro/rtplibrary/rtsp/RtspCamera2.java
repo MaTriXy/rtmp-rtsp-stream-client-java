@@ -7,11 +7,13 @@ import android.support.annotation.RequiresApi;
 import android.view.SurfaceView;
 import android.view.TextureView;
 
+import com.pedro.encoder.utils.CodecUtil;
 import com.pedro.rtplibrary.base.Camera2Base;
 import com.pedro.rtplibrary.view.LightOpenGlView;
 import com.pedro.rtplibrary.view.OpenGlView;
 import com.pedro.rtsp.rtsp.Protocol;
 import com.pedro.rtsp.rtsp.RtspClient;
+import com.pedro.rtsp.rtsp.VideoCodec;
 import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 
 import java.nio.ByteBuffer;
@@ -61,6 +63,10 @@ public class RtspCamera2 extends Camera2Base {
     rtspClient.setProtocol(protocol);
   }
 
+  public void setVideoCodec(VideoCodec videoCodec) {
+    videoEncoder.setType(videoCodec == VideoCodec.H265 ? CodecUtil.H265_MIME : CodecUtil.H264_MIME);
+  }
+
   @Override
   public void setAuthorization(String user, String password) {
     rtspClient.setAuthorization(user, password);
@@ -88,10 +94,11 @@ public class RtspCamera2 extends Camera2Base {
   }
 
   @Override
-  protected void onSPSandPPSRtp(ByteBuffer sps, ByteBuffer pps) {
+  protected void onSpsPpsVpsRtp(ByteBuffer sps, ByteBuffer pps, ByteBuffer vps) {
     ByteBuffer newSps = sps.duplicate();
     ByteBuffer newPps = pps.duplicate();
-    rtspClient.setSPSandPPS(newSps, newPps);
+    ByteBuffer newVps = vps != null ? vps.duplicate() : null;
+    rtspClient.setSPSandPPS(newSps, newPps, newVps);
     rtspClient.connect();
   }
 

@@ -46,6 +46,7 @@
   <string name="blur">Blur</string>
   <string name="brightness">Brightness</string>
   <string name="cartoon">Cartoon</string>
+  <string name="circle">Circle</string>
   <string name="color">Color</string>
   <string name="contrast">Contrast</string>
   <string name="duotone">Duotone</string>
@@ -54,6 +55,7 @@
   <string name="exposure">Exposure</string>
   <string name="fire">Fire</string>
   <string name="gamma">Gamma</string>
+  <string name="glitch">Glitch</string>
   <string name="gif">Gif</string>
   <string name="halftone_lines">Halftone lines</string>
   <string name="image">Image</string>
@@ -69,6 +71,8 @@
   <string name="surface_filter">Surface filter</string>
   <string name="rainbow">Rainbow</string>
   <string name="sharpness">Sharpness</string>
+  <string name="snow">Snow</string>
+  <string name="swirl">Swirl</string>
   <string name="temperature">Temperature</string>
   <string name="text">Text</string>
   <string name="zebra">Zebra</string>

@@ -49,7 +49,6 @@ public class OpenGlView extends OpenGlViewBase {
   public void init() {
     if (!initialized) managerRender = new ManagerRender();
     managerRender.setCameraFlip(isFlipHorizontal, isFlipVertical);
-    waitTime = 10;
     initialized = true;
   }
 
@@ -79,6 +78,11 @@ public class OpenGlView extends OpenGlViewBase {
     loadAA = true;
   }
 
+  @Override
+  public void setRotation(int rotation) {
+    managerRender.setCameraRotation(rotation);
+  }
+
   public boolean isKeepAspectRatio() {
     return keepAspectRatio;
   }
@@ -98,17 +102,15 @@ public class OpenGlView extends OpenGlViewBase {
 
   @Override
   public void run() {
+    releaseSurfaceManager();
     surfaceManager = new SurfaceManager(getHolder().getSurface());
     surfaceManager.makeCurrent();
     managerRender.setStreamSize(encoderWidth, encoderHeight);
-    managerRender.setCameraRotation(rotation);
     managerRender.initGl(previewWidth, previewHeight, getContext());
     managerRender.getSurfaceTexture().setOnFrameAvailableListener(this);
     semaphore.release();
     try {
       while (running) {
-        synchronized (sync) {
-          sync.wait(waitTime);
           if (frameAvailable) {
             frameAvailable = false;
             surfaceManager.makeCurrent();
@@ -121,7 +123,6 @@ public class OpenGlView extends OpenGlViewBase {
                   GlUtil.getBitmap(previewWidth, previewHeight, encoderWidth, encoderHeight));
               takePhotoCallback = null;
             }
-            //stream object loaded but you need reset surfaceManagerEncoder
             synchronized (sync) {
               if (surfaceManagerEncoder != null) {
                 surfaceManagerEncoder.makeCurrent();
@@ -139,12 +140,12 @@ public class OpenGlView extends OpenGlViewBase {
             managerRender.enableAA(AAEnabled);
             loadAA = false;
           }
-        }
       }
     } catch (InterruptedException ignore) {
       Thread.currentThread().interrupt();
     } finally {
       managerRender.release();
+      releaseSurfaceManager();
     }
   }
 }

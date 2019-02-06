@@ -38,9 +38,7 @@ public abstract class OpenGlViewBase extends SurfaceView
   protected final Object sync = new Object();
   protected int previewWidth, previewHeight;
   protected int encoderWidth, encoderHeight;
-  protected int waitTime;
   protected TakePhotoCallback takePhotoCallback;
-  protected int rotation = 0;
 
   public OpenGlViewBase(Context context) {
     super(context);
@@ -62,11 +60,6 @@ public abstract class OpenGlViewBase extends SurfaceView
   public abstract Surface getSurface();
 
   @Override
-  public void setRotation(int rotation) {
-    this.rotation = rotation;
-  }
-
-  @Override
   public void takePhoto(TakePhotoCallback takePhotoCallback) {
     this.takePhotoCallback = takePhotoCallback;
   }
@@ -86,11 +79,6 @@ public abstract class OpenGlViewBase extends SurfaceView
         surfaceManagerEncoder = null;
       }
     }
-  }
-
-  @Override
-  public void setWaitTime(int waitTime) {
-    this.waitTime = waitTime;
   }
 
   @Override
@@ -116,15 +104,20 @@ public abstract class OpenGlViewBase extends SurfaceView
       if (thread != null) {
         thread.interrupt();
         try {
-          thread.join(1000);
+          thread.join(100);
         } catch (InterruptedException e) {
           thread.interrupt();
         }
         thread = null;
       }
-      surfaceManager.release();
       running = false;
-      rotation = 0;
+    }
+  }
+
+  protected void releaseSurfaceManager() {
+    if (surfaceManager != null) {
+      surfaceManager.release();
+      surfaceManager = null;
     }
   }
 

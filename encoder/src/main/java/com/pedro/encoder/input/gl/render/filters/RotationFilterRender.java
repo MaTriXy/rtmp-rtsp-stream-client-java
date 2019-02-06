@@ -10,6 +10,10 @@ import com.pedro.encoder.utils.gl.GlUtil;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+/**
+ * Created by pedro on 9/07/18.
+ */
+
 @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
 public class RotationFilterRender extends BaseFilterRender {
 
@@ -82,7 +86,7 @@ public class RotationFilterRender extends BaseFilterRender {
 
   @Override
   public void release() {
-
+    GLES20.glDeleteProgram(program);
   }
 
   public int getRotation() {

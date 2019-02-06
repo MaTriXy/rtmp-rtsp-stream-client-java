@@ -1,5 +1,7 @@
 package com.pedro.encoder.input.video;
 
+import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
@@ -8,18 +10,20 @@ import android.util.Log;
 import android.view.MotionEvent;
 import android.view.SurfaceView;
 import android.view.TextureView;
+
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 
 /**
  * Created by pedro on 20/01/17.
+ *
  * This class need use same resolution, fps and imageFormat that VideoEncoder
  * Tested with YV12 and NV21.
- *
+ * <p>
  * Advantage = you can control fps of the stream.
  * Disadvantages = you cant use all resolutions, only resolution that your camera support.
- *
+ * <p>
  * If you want use all resolutions. You can use libYuv for resize images in OnPreviewFrame:
  * https://chromium.googlesource.com/libyuv/libyuv/
  */
@@ -36,7 +40,9 @@ public class Camera1ApiManager implements Camera.PreviewCallback, Camera.FaceDet
   private boolean lanternEnable = false;
   private int cameraSelect;
   private boolean isFrontCamera = false;
+  private boolean isPortrait = false;
   private int cameraFacing = Camera.CameraInfo.CAMERA_FACING_BACK;
+  private Context context;
 
   //default parameters for camera
   private int width = 640;
@@ -59,25 +65,28 @@ public class Camera1ApiManager implements Camera.PreviewCallback, Camera.FaceDet
   public Camera1ApiManager(SurfaceView surfaceView, GetCameraData getCameraData) {
     this.surfaceView = surfaceView;
     this.getCameraData = getCameraData;
+    this.context = surfaceView.getContext();
     init();
   }
 
   public Camera1ApiManager(TextureView textureView, GetCameraData getCameraData) {
     this.textureView = textureView;
     this.getCameraData = getCameraData;
+    this.context = textureView.getContext();
     init();
   }
 
-  public Camera1ApiManager(SurfaceTexture surfaceTexture) {
+  public Camera1ApiManager(SurfaceTexture surfaceTexture, Context context) {
     this.surfaceTexture = surfaceTexture;
+    this.context = context;
     init();
   }
 
   private void init() {
-    cameraSelect = selectCameraFront();
-    previewSizeFront = getPreviewSize();
     cameraSelect = selectCameraBack();
     previewSizeBack = getPreviewSize();
+    cameraSelect = selectCameraFront();
+    previewSizeFront = getPreviewSize();
   }
 
   public void setRotation(int rotation) {
@@ -88,18 +97,23 @@ public class Camera1ApiManager implements Camera.PreviewCallback, Camera.FaceDet
     this.surfaceTexture = surfaceTexture;
   }
 
-  public void start(@Camera1Facing int cameraFacing, int width, int height, int fps) {
+  public void start(CameraHelper.Facing cameraFacing, int width, int height, int fps) {
+    int facing = cameraFacing == CameraHelper.Facing.BACK ? Camera.CameraInfo.CAMERA_FACING_BACK
+        : Camera.CameraInfo.CAMERA_FACING_FRONT;
     this.width = width;
     this.height = height;
     this.fps = fps;
-    this.cameraFacing = cameraFacing;
-    cameraSelect = (cameraFacing == Camera.CameraInfo.CAMERA_FACING_BACK) ? selectCameraBack()
-        : selectCameraFront();
+    this.cameraFacing = facing;
+    cameraSelect =
+        facing == Camera.CameraInfo.CAMERA_FACING_BACK ? selectCameraBack() : selectCameraFront();
     start();
   }
 
   public void start(int width, int height, int fps) {
-    start(cameraFacing, width, height, fps);
+    CameraHelper.Facing facing =
+        cameraFacing == Camera.CameraInfo.CAMERA_FACING_BACK ? CameraHelper.Facing.BACK
+            : CameraHelper.Facing.FRONT;
+    start(facing, width, height, fps);
   }
 
   private void start() {
@@ -112,7 +126,8 @@ public class Camera1ApiManager implements Camera.PreviewCallback, Camera.FaceDet
       Camera.CameraInfo info = new Camera.CameraInfo();
       Camera.getCameraInfo(cameraSelect, info);
       isFrontCamera = info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT;
-
+      isPortrait = context.getResources().getConfiguration().orientation
+          == Configuration.ORIENTATION_PORTRAIT;
       Camera.Parameters parameters = camera.getParameters();
       parameters.setPreviewSize(width, height);
       parameters.setPreviewFormat(imageFormat);
@@ -188,31 +203,21 @@ public class Camera1ApiManager implements Camera.PreviewCallback, Camera.FaceDet
   }
 
   private int selectCameraBack() {
-    int number = Camera.getNumberOfCameras();
-    for (int i = 0; i < number; i++) {
-      Camera.CameraInfo info = new Camera.CameraInfo();
-      Camera.getCameraInfo(i, info);
-      if (info.facing == Camera.CameraInfo.CAMERA_FACING_BACK) {
-        return i;
-      } else {
-        cameraSelect = i;
-      }
-    }
-    return cameraSelect;
+    return selectCamera(Camera.CameraInfo.CAMERA_FACING_BACK);
   }
 
   private int selectCameraFront() {
+    return selectCamera(Camera.CameraInfo.CAMERA_FACING_FRONT);
+  }
+
+  private int selectCamera(int facing) {
     int number = Camera.getNumberOfCameras();
     for (int i = 0; i < number; i++) {
       Camera.CameraInfo info = new Camera.CameraInfo();
       Camera.getCameraInfo(i, info);
-      if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
-        return i;
-      } else {
-        cameraSelect = i;
-      }
+      if (info.facing == facing) return i;
     }
-    return cameraSelect;
+    return 0;
   }
 
   public void stop() {
@@ -248,7 +253,7 @@ public class Camera1ApiManager implements Camera.PreviewCallback, Camera.FaceDet
 
   @Override
   public void onPreviewFrame(byte[] data, Camera camera) {
-    getCameraData.inputYUVData(new Frame(data, rotation, isFrontCamera, imageFormat));
+    getCameraData.inputYUVData(new Frame(data, rotation, isFrontCamera && isPortrait, imageFormat));
     camera.addCallbackBuffer(yuvBuffer);
   }
 
@@ -361,14 +366,14 @@ public class Camera1ApiManager implements Camera.PreviewCallback, Camera.FaceDet
     return false;
   }
 
-  public boolean isLanternEnable() {
+  public boolean isLanternEnabled() {
     return lanternEnable;
   }
 
   /**
    * @required: <uses-permission android:name="android.permission.FLASHLIGHT"/>
    */
-  public void enableLantern() {
+  public void enableLantern() throws Exception {
     if (camera != null) {
       Camera.Parameters parameters = camera.getParameters();
       List<String> supportedFlashModes = parameters.getSupportedFlashModes();
@@ -379,6 +384,7 @@ public class Camera1ApiManager implements Camera.PreviewCallback, Camera.FaceDet
           lanternEnable = true;
         } else {
           Log.e(TAG, "Lantern unsupported");
+          throw new Exception("Lantern unsupported");
         }
       }
     }

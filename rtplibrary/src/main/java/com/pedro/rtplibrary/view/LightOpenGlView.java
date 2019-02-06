@@ -15,6 +15,7 @@ import com.pedro.rtplibrary.R;
 
 /**
  * Created by pedro on 21/02/18.
+ *
  * Light version of OpenGlView for devices too slow.
  */
 
@@ -45,7 +46,6 @@ public class LightOpenGlView extends OpenGlViewBase {
   public void init() {
     if (!initialized) simpleCameraRender = new SimpleCameraRender();
     simpleCameraRender.setFlip(isFlipHorizontal, isFlipVertical);
-    waitTime = 200;
     initialized = true;
   }
 
@@ -63,46 +63,38 @@ public class LightOpenGlView extends OpenGlViewBase {
 
   @Override
   public void run() {
+    releaseSurfaceManager();
     surfaceManager = new SurfaceManager(getHolder().getSurface());
     surfaceManager.makeCurrent();
     simpleCameraRender.setStreamSize(encoderWidth, encoderHeight);
-    simpleCameraRender.setRotation(rotation);
     simpleCameraRender.initGl(getContext());
     simpleCameraRender.getSurfaceTexture().setOnFrameAvailableListener(this);
     semaphore.release();
-    try {
-      while (running) {
+    while (running) {
+      if (frameAvailable) {
+        frameAvailable = false;
+        surfaceManager.makeCurrent();
+        simpleCameraRender.updateFrame();
+        simpleCameraRender.drawFrame(previewWidth, previewHeight, keepAspectRatio);
+        surfaceManager.swapBuffer();
+        if (takePhotoCallback != null) {
+          takePhotoCallback.onTakePhoto(
+              GlUtil.getBitmap(previewWidth, previewHeight, encoderWidth, encoderHeight));
+          takePhotoCallback = null;
+        }
         synchronized (sync) {
-          sync.wait(waitTime);
-          if (frameAvailable) {
-            frameAvailable = false;
-            surfaceManager.makeCurrent();
-            simpleCameraRender.updateFrame();
-            simpleCameraRender.drawFrame(previewWidth, previewHeight, keepAspectRatio);
-            surfaceManager.swapBuffer();
-            if (takePhotoCallback != null) {
-              takePhotoCallback.onTakePhoto(
-                  GlUtil.getBitmap(previewWidth, previewHeight, encoderWidth, encoderHeight));
-              takePhotoCallback = null;
-            }
-
-            synchronized (sync) {
-              if (surfaceManagerEncoder != null) {
-                surfaceManagerEncoder.makeCurrent();
-                simpleCameraRender.drawFrame(encoderWidth, encoderHeight, false);
-                long ts = simpleCameraRender.getSurfaceTexture().getTimestamp();
-                surfaceManagerEncoder.setPresentationTime(ts);
-                surfaceManagerEncoder.swapBuffer();
-              }
-            }
+          if (surfaceManagerEncoder != null) {
+            surfaceManagerEncoder.makeCurrent();
+            simpleCameraRender.drawFrame(encoderWidth, encoderHeight, false);
+            long ts = simpleCameraRender.getSurfaceTexture().getTimestamp();
+            surfaceManagerEncoder.setPresentationTime(ts);
+            surfaceManagerEncoder.swapBuffer();
           }
         }
       }
-    } catch (InterruptedException ignore) {
-      Thread.currentThread().interrupt();
-    } finally {
-      simpleCameraRender.release();
     }
+    simpleCameraRender.release();
+    releaseSurfaceManager();
   }
 
   @Override
@@ -128,6 +120,11 @@ public class LightOpenGlView extends OpenGlViewBase {
   @Override
   public void enableAA(boolean AAEnabled) {
 
+  }
+
+  @Override
+  public void setRotation(int rotation) {
+    simpleCameraRender.setRotation(rotation);
   }
 
   @Override

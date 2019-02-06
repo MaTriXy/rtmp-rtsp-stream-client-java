@@ -1,7 +1,6 @@
 package com.pedro.rtplibrary.base;
 
 import android.content.Context;
-import android.hardware.camera2.CameraMetadata;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
@@ -17,12 +16,11 @@ import com.pedro.encoder.audio.GetAacData;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
 import com.pedro.encoder.input.audio.MicrophoneManager;
 import com.pedro.encoder.input.video.Camera2ApiManager;
-import com.pedro.encoder.input.video.Camera2Facing;
 import com.pedro.encoder.input.video.CameraHelper;
 import com.pedro.encoder.input.video.CameraOpenException;
 import com.pedro.encoder.utils.CodecUtil;
 import com.pedro.encoder.video.FormatVideoEncoder;
-import com.pedro.encoder.video.GetH264Data;
+import com.pedro.encoder.video.GetVideoData;
 import com.pedro.encoder.video.VideoEncoder;
 import com.pedro.rtplibrary.view.GlInterface;
 import com.pedro.rtplibrary.view.LightOpenGlView;
@@ -34,10 +32,9 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Wrapper to stream with camera2 api and microphone.
- * Support stream with SurfaceView, TextureView, OpenGlView(Custom SurfaceView that use OpenGl) and
- * Context(background mode).
- * All views use Surface to buffer encoding mode for H264.
+ * Wrapper to stream with camera2 api and microphone. Support stream with SurfaceView, TextureView,
+ * OpenGlView(Custom SurfaceView that use OpenGl) and Context(background mode). All views use
+ * Surface to buffer encoding mode for H264.
  *
  * API requirements:
  * API 21+.
@@ -45,7 +42,7 @@ import java.util.List;
  * Created by pedro on 7/07/17.
  */
 @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
-public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicrophoneData {
+public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrophoneData {
 
   protected Context context;
   private Camera2ApiManager cameraManager;
@@ -154,8 +151,8 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
    * @param hardwareRotation true if you want rotate using encoder, false if you with OpenGl if you
    * are using OpenGlView.
    * @param rotation could be 90, 180, 270 or 0 (Normally 0 if you are streaming in landscape or 90
-   * if you are streaming in Portrait). This only affect to stream result.
-   * NOTE: Rotation with encoder is silence ignored in some devices.
+   * if you are streaming in Portrait). This only affect to stream result. NOTE: Rotation with
+   * encoder is silence ignored in some devices.
    * @return true if success, false if you get a error (Normally because the encoder selected
    * doesn't support any configuration seated or your device hasn't a H264 encoder).
    */
@@ -202,9 +199,7 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
   }
 
   /**
-   * Same to call:
-   * isHardwareRotation = true;
-   * if (openGlVIew) isHardwareRotation = false;
+   * Same to call: isHardwareRotation = true; if (openGlVIew) isHardwareRotation = false;
    * prepareVideo(640, 480, 30, 1200 * 1024, isHardwareRotation, 90);
    *
    * @return true if success, false if you get a error (Normally because the encoder selected
@@ -217,8 +212,7 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
   }
 
   /**
-   * Same to call:
-   * prepareAudio(64 * 1024, 32000, true, false, false);
+   * Same to call: prepareAudio(64 * 1024, 32000, true, false, false);
    *
    * @return true if success, false if you get a error (Normally because the encoder selected
    * doesn't support any configuration seated or your device hasn't a AAC encoder).
@@ -272,14 +266,13 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
 
   /**
    * Start camera preview. Ignored, if stream or preview is started.
-   * Width and height preview will be the last resolution used to prepareVideo. 640x480 first time.
    *
-   * @param cameraFacing front or back camera. Like:
-   * {@link android.hardware.camera2.CameraMetadata#LENS_FACING_BACK}
-   * {@link android.hardware.camera2.CameraMetadata#LENS_FACING_FRONT}
+   * @param cameraFacing front or back camera. Like: {@link com.pedro.encoder.input.video.CameraHelper.Facing#BACK}
+   * {@link com.pedro.encoder.input.video.CameraHelper.Facing#FRONT}
+   * @param rotation camera rotation (0, 90, 180, 270). Recommended: {@link
+   * com.pedro.encoder.input.video.CameraHelper#getCameraOrientation(Context)}
    */
-  @Deprecated
-  public void startPreview(@Camera2Facing int cameraFacing, int rotation) {
+  public void startPreview(CameraHelper.Facing cameraFacing, int rotation) {
     if (!isStreaming() && !onPreview && !isBackground) {
       if (surfaceView != null) {
         cameraManager.prepareCamera(surfaceView.getHolder().getSurface());
@@ -302,35 +295,18 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
     }
   }
 
-  public void startPreview(CameraHelper.Facing cameraFacing, int rotation) {
-    int facing = cameraFacing == CameraHelper.Facing.BACK ? CameraMetadata.LENS_FACING_BACK
-        : CameraMetadata.LENS_FACING_FRONT;
-    startPreview(facing, rotation);
-  }
-
-  @Deprecated
-  public void startPreview(@Camera2Facing int cameraFacing) {
+  public void startPreview(CameraHelper.Facing cameraFacing) {
     startPreview(cameraFacing, CameraHelper.getCameraOrientation(context));
   }
 
-  public void startPreview(CameraHelper.Facing cameraFacing) {
-    int facing = cameraFacing == CameraHelper.Facing.BACK ? CameraMetadata.LENS_FACING_BACK
-        : CameraMetadata.LENS_FACING_FRONT;
-    startPreview(facing);
-  }
-
-  /**
-   * Start camera preview. Ignored, if stream or preview is started.
-   * Width and height preview will be the last resolution used to start camera. 640x480 first time.
-   * CameraFacing will be always back.
-   */
   public void startPreview() {
     startPreview(CameraHelper.Facing.BACK);
   }
 
   /**
-   * Stop camera preview. Ignored if streaming or already stopped.
-   * You need call it after @stopStream to release camera properly if you will close activity.
+   * Stop camera preview. Ignored if streaming or already stopped. You need call it after
+   *
+   * @stopStream to release camera properly if you will close activity.
    */
   public void stopPreview() {
     if (!isStreaming() && onPreview && !isBackground) {
@@ -345,33 +321,30 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
   protected abstract void startStreamRtp(String url);
 
   /**
-   * Need be called after @prepareVideo or/and @prepareAudio.
-   * This method override resolution of @startPreview to resolution seated in @prepareVideo. If you
-   * never startPreview this method startPreview for you to resolution seated in @prepareVideo.
+   * Need be called after @prepareVideo or/and @prepareAudio. This method override resolution of
    *
-   * @param url of the stream like:
-   * protocol://ip:port/application/streamName
+   * @param url of the stream like: protocol://ip:port/application/streamName
    *
-   * RTSP: rtsp://192.168.1.1:1935/live/pedroSG94
-   * RTSPS: rtsps://192.168.1.1:1935/live/pedroSG94
-   * RTMP: rtmp://192.168.1.1:1935/live/pedroSG94
-   * RTMPS: rtmps://192.168.1.1:1935/live/pedroSG94
+   * RTSP: rtsp://192.168.1.1:1935/live/pedroSG94 RTSPS: rtsps://192.168.1.1:1935/live/pedroSG94
+   * RTMP: rtmp://192.168.1.1:1935/live/pedroSG94 RTMPS: rtmps://192.168.1.1:1935/live/pedroSG94
+   * @startPreview to resolution seated in @prepareVideo. If you never startPreview this method
+   * startPreview for you to resolution seated in @prepareVideo.
    */
   public void startStream(String url) {
     streaming = true;
-    startStreamRtp(url);
     if (!recording) {
       startEncoders();
     } else {
       resetVideoEncoder();
     }
+    startStreamRtp(url);
     onPreview = true;
   }
 
   private void startEncoders() {
-    prepareGlView();
     videoEncoder.start();
     audioEncoder.start();
+    prepareGlView();
     microphoneManager.start();
     if (onPreview) {
       cameraManager.openLastCamera();
@@ -382,10 +355,16 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
   }
 
   private void resetVideoEncoder() {
-    if (glInterface != null) glInterface.removeMediaCodecSurface();
+    if (glInterface != null) {
+      glInterface.removeMediaCodecSurface();
+    }
     videoEncoder.reset();
     if (glInterface != null) {
       glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
+    } else {
+      cameraManager.closeCamera(false);
+      cameraManager.prepareCamera(videoEncoder.getInputSurface());
+      cameraManager.openLastCamera();
     }
   }
 
@@ -393,9 +372,9 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
     if (glInterface != null && videoEnabled) {
       if (glInterface instanceof OffScreenGlThread) {
         glInterface = new OffScreenGlThread(context);
+        glInterface.init();
         ((OffScreenGlThread) glInterface).setFps(videoEncoder.getFps());
       }
-      glInterface.init();
       if (videoEncoder.getRotation() == 90 || videoEncoder.getRotation() == 270) {
         glInterface.setEncoderSize(videoEncoder.getHeight(), videoEncoder.getWidth());
       } else {
@@ -426,10 +405,6 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
       cameraManager.closeCamera(!isBackground);
       onPreview = !isBackground;
       microphoneManager.stop();
-      videoEncoder.stop();
-      audioEncoder.stop();
-      videoFormat = null;
-      audioFormat = null;
       if (glInterface != null) {
         glInterface.removeMediaCodecSurface();
         if (glInterface instanceof OffScreenGlThread) {
@@ -437,6 +412,10 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
           glInterface.stop();
         }
       }
+      videoEncoder.stop();
+      audioEncoder.stop();
+      videoFormat = null;
+      audioFormat = null;
     }
   }
 
@@ -573,8 +552,8 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
   }
 
   /**
-   * Set limit FPS while stream. This will be override when you call to prepareVideo method.
-   * This could produce a change in iFrameInterval.
+   * Set limit FPS while stream. This will be override when you call to prepareVideo method. This
+   * could produce a change in iFrameInterval.
    *
    * @param fps frames per second
    */
@@ -617,17 +596,22 @@ public abstract class Camera2Base implements GetAacData, GetH264Data, GetMicroph
     if (streaming) getAacDataRtp(aacBuffer, info);
   }
 
-  protected abstract void onSPSandPPSRtp(ByteBuffer sps, ByteBuffer pps);
+  protected abstract void onSpsPpsVpsRtp(ByteBuffer sps, ByteBuffer pps, ByteBuffer vps);
 
   @Override
-  public void onSPSandPPS(ByteBuffer sps, ByteBuffer pps) {
-    if (streaming) onSPSandPPSRtp(sps, pps);
+  public void onSpsPps(ByteBuffer sps, ByteBuffer pps) {
+    if (streaming) onSpsPpsVpsRtp(sps, pps, null);
+  }
+
+  @Override
+  public void onSpsPpsVps(ByteBuffer sps, ByteBuffer pps, ByteBuffer vps) {
+    if (streaming) onSpsPpsVpsRtp(sps, pps, vps);
   }
 
   protected abstract void getH264DataRtp(ByteBuffer h264Buffer, MediaCodec.BufferInfo info);
 
   @Override
-  public void getH264Data(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
+  public void getVideoData(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
     if (recording) {
       if (info.flags == MediaCodec.BUFFER_FLAG_KEY_FRAME
           && !canRecord

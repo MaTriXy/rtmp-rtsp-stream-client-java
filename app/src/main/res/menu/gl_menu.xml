@@ -38,6 +38,10 @@
           android:title="@string/cartoon"
           />
       <item
+          android:id="@+id/circle"
+          android:title="@string/circle"
+          />
+      <item
           android:id="@+id/color"
           android:title="@string/color"
           />
@@ -68,6 +72,10 @@
       <item
           android:id="@+id/gamma"
           android:title="@string/gamma"
+          />
+      <item
+          android:id="@+id/glitch"
+          android:title="@string/glitch"
           />
       <item
           android:id="@+id/gif"
@@ -136,6 +144,14 @@
       <item
           android:id="@+id/sharpness"
           android:title="@string/sharpness"
+          />
+      <item
+          android:id="@+id/snow"
+          android:title="@string/snow"
+          />
+      <item
+          android:id="@+id/swirl"
+          android:title="@string/swirl"
           />
       <item
           android:id="@+id/surface_filter"

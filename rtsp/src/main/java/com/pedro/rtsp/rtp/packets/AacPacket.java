@@ -5,6 +5,11 @@ import com.pedro.rtsp.rtsp.RtpFrame;
 import com.pedro.rtsp.utils.RtpConstants;
 import java.nio.ByteBuffer;
 
+/**
+ * Created by pedro on 27/11/18.
+ *
+ * RFC 3640.
+ */
 public class AacPacket extends BasePacket {
 
   private AudioPacketCallback audioPacketCallback;
@@ -15,6 +20,7 @@ public class AacPacket extends BasePacket {
     channelIdentifier = (byte) 0;
   }
 
+  @Override
   public void createAndSendPacket(ByteBuffer byteBuffer, MediaCodec.BufferInfo bufferInfo) {
     int length = bufferInfo.size - byteBuffer.position();
     if (length > 0) {

@@ -10,6 +10,10 @@ import java.net.InetAddress;
 import java.net.MulticastSocket;
 import java.net.UnknownHostException;
 
+/**
+ * Created by pedro on 7/11/18.
+ */
+
 public class RtpSocketUdp extends BaseRtpSocket {
 
   private MulticastSocket multicastSocket;
@@ -50,7 +54,8 @@ public class RtpSocketUdp extends BaseRtpSocket {
   }
 
   private void sendFrameUDP(RtpFrame rtpFrame) throws IOException {
-    datagramPacket.setData(rtpFrame.getBuffer(), 0, rtpFrame.getLength());
+    datagramPacket.setData(rtpFrame.getBuffer());
+    datagramPacket.setPort(rtpFrame.getRtpPort());
     datagramPacket.setLength(rtpFrame.getLength());
     multicastSocket.send(datagramPacket);
     Log.i(TAG, "wrote packet: "
