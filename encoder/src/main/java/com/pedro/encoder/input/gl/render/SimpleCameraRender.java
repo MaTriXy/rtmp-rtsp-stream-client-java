@@ -6,11 +6,12 @@ import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.view.Surface;
 import com.pedro.encoder.R;
 import com.pedro.encoder.input.video.CameraHelper;
 import com.pedro.encoder.utils.gl.GlUtil;
+import com.pedro.encoder.utils.gl.PreviewSizeCalculator;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -87,17 +88,9 @@ public class SimpleCameraRender {
     GlUtil.checkGlError("drawFrame start");
     surfaceTexture.getTransformMatrix(STMatrix);
 
-    if (keepAspectRatio) {
-      if (width > height) { //landscape
-        int realWidth = height * streamWidth / streamHeight;
-        GLES20.glViewport((width - realWidth) / 2, 0, realWidth, height);
-      } else { //portrait
-        int realHeight = width * streamHeight / streamWidth;
-        GLES20.glViewport(0, (height - realHeight) / 2, width, realHeight);
-      }
-    } else {
-      GLES20.glViewport(0, 0, width, height);
-    }
+    PreviewSizeCalculator.calculateViewPort(keepAspectRatio, width, height, streamWidth,
+        streamHeight);
+
     GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     GLES20.glClear(GLES20.GL_DEPTH_BUFFER_BIT | GLES20.GL_COLOR_BUFFER_BIT);
 
@@ -126,7 +119,9 @@ public class SimpleCameraRender {
   /**
    * Initializes GL state.  Call this after the EGL surface has been created and made current.
    */
-  public void initGl(Context context) {
+  public void initGl(Context context, int streamWidth, int streamHeight) {
+    this.streamWidth = streamWidth;
+    this.streamHeight = streamHeight;
     GlUtil.checkGlError("initGl start");
     String vertexShader = GlUtil.getStringFromRaw(context, R.raw.simple_vertex);
     String fragmentShader = GlUtil.getStringFromRaw(context, R.raw.camera_fragment);
@@ -142,6 +137,7 @@ public class SimpleCameraRender {
     textureID = texturesID[0];
 
     surfaceTexture = new SurfaceTexture(textureID);
+    surfaceTexture.setDefaultBufferSize(streamWidth, streamHeight);
     surface = new Surface(surfaceTexture);
     GlUtil.checkGlError("initGl end");
   }
@@ -150,11 +146,6 @@ public class SimpleCameraRender {
     GLES20.glDeleteProgram(program);
     surfaceTexture = null;
     surface = null;
-  }
-
-  public void setStreamSize(int streamWidth, int streamHeight) {
-    this.streamWidth = streamWidth;
-    this.streamHeight = streamHeight;
   }
 
   public void setFlip(boolean isFlipHorizontal, boolean isFlipVertical) {

@@ -6,9 +6,8 @@ import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
-import android.media.MediaMuxer;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.util.Log;
 import com.pedro.encoder.audio.AudioEncoder;
 import com.pedro.encoder.audio.GetAacData;
@@ -22,6 +21,8 @@ import com.pedro.encoder.utils.CodecUtil;
 import com.pedro.encoder.video.FormatVideoEncoder;
 import com.pedro.encoder.video.GetVideoData;
 import com.pedro.encoder.video.VideoEncoder;
+import com.pedro.rtplibrary.util.FpsListener;
+import com.pedro.rtplibrary.util.RecordController;
 import com.pedro.rtplibrary.view.GlInterface;
 import com.pedro.rtplibrary.view.LightOpenGlView;
 import com.pedro.rtplibrary.view.OffScreenGlThread;
@@ -51,14 +52,8 @@ public abstract class FromFileBase
   private GlInterface glInterface;
   private boolean streaming = false;
   private boolean videoEnabled = true;
-  //record
-  private MediaMuxer mediaMuxer;
-  private int videoTrack = -1;
-  private int audioTrack = -1;
-  private boolean recording = false;
-  private boolean canRecord = false;
-  private MediaFormat videoFormat;
-  private MediaFormat audioFormat;
+  private RecordController recordController;
+  private FpsListener fpsListener = new FpsListener();
 
   private VideoDecoder videoDecoder;
   private AudioDecoder audioDecoder;
@@ -108,6 +103,14 @@ public abstract class FromFileBase
     this.audioDecoderInterface = audioDecoderInterface;
     videoEncoder = new VideoEncoder(this);
     audioEncoder = new AudioEncoder(this);
+    recordController = new RecordController();
+  }
+
+  /**
+   * @param callback get fps while record or stream
+   */
+  public void setFpsListener(FpsListener.Callback callback) {
+    fpsListener.setCallback(callback);
   }
 
   /**
@@ -150,7 +153,7 @@ public abstract class FromFileBase
     audioDecoder = new AudioDecoder(this, audioDecoderInterface, this);
     if (!audioDecoder.initExtractor(filePath)) return false;
     boolean result = audioEncoder.prepareAudioEncoder(bitRate, audioDecoder.getSampleRate(),
-        audioDecoder.isStereo());
+        audioDecoder.isStereo(), 0);
     prepareAudioRtp(audioDecoder.isStereo(), audioDecoder.getSampleRate());
     audioDecoder.prepareAudio();
     if (glInterface != null && !(glInterface instanceof OffScreenGlThread)) {
@@ -185,9 +188,8 @@ public abstract class FromFileBase
    * @param path where file will be saved.
    * @throws IOException If you init it before start stream.
    */
-  public void startRecord(String path) throws IOException {
-    mediaMuxer = new MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
-    recording = true;
+  public void startRecord(String path, RecordController.Listener listener) throws IOException {
+    recordController.startRecord(path, listener);
     if (!streaming) {
       startEncoders();
     } else if (videoEncoder.isRunning()) {
@@ -195,21 +197,15 @@ public abstract class FromFileBase
     }
   }
 
+  public void startRecord(final String path) throws IOException {
+    startRecord(path, null);
+  }
+
   /**
    * Stop record MP4 video started with @startRecord. If you don't call it file will be unreadable.
    */
   public void stopRecord() {
-    recording = false;
-    if (mediaMuxer != null) {
-      if (canRecord) {
-        mediaMuxer.stop();
-        mediaMuxer.release();
-        canRecord = false;
-      }
-      mediaMuxer = null;
-    }
-    videoTrack = -1;
-    audioTrack = -1;
+    recordController.stopRecord();
     if (!streaming) stopStream();
   }
 
@@ -228,7 +224,7 @@ public abstract class FromFileBase
    */
   public void startStream(String url) {
     streaming = true;
-    if (!recording) {
+    if (!recordController.isRecording()) {
       startEncoders();
     } else {
       resetVideoEncoder();
@@ -246,12 +242,12 @@ public abstract class FromFileBase
   }
 
   private void prepareGlView() {
-    if (glInterface != null && Build.VERSION.SDK_INT >= 18) {
+    if (glInterface != null) {
       if (glInterface instanceof OffScreenGlThread) {
         glInterface = new OffScreenGlThread(context);
         glInterface.init();
-        ((OffScreenGlThread) glInterface).setFps(videoEncoder.getFps());
       }
+      glInterface.setFps(videoEncoder.getFps());
       if (videoEncoder.getRotation() == 90 || videoEncoder.getRotation() == 270) {
         glInterface.setEncoderSize(videoEncoder.getHeight(), videoEncoder.getWidth());
       } else {
@@ -291,6 +287,39 @@ public abstract class FromFileBase
 
   protected abstract void stopStreamRtp();
 
+  public void reTry(long delay) {
+    resetVideoEncoder();
+    reConnect(delay);
+  }
+
+  //re connection
+  public abstract void setReTries(int reTries);
+
+  public abstract boolean shouldRetry(String reason);
+
+  protected abstract void reConnect(long delay);
+
+  //cache control
+  public abstract void resizeCache(int newSize) throws RuntimeException;
+
+  public abstract int getCacheSize();
+
+  public abstract long getSentAudioFrames();
+
+  public abstract long getSentVideoFrames();
+
+  public abstract long getDroppedAudioFrames();
+
+  public abstract long getDroppedVideoFrames();
+
+  public abstract void resetSentAudioFrames();
+
+  public abstract void resetSentVideoFrames();
+
+  public abstract void resetDroppedAudioFrames();
+
+  public abstract void resetDroppedVideoFrames();
+
   /**
    * Stop stream started with @startStream.
    */
@@ -299,7 +328,7 @@ public abstract class FromFileBase
       streaming = false;
       stopStreamRtp();
     }
-    if (!recording) {
+    if (!recordController.isRecording()) {
       if (glInterface != null) {
         glInterface.removeMediaCodecSurface();
         glInterface.stop();
@@ -313,8 +342,7 @@ public abstract class FromFileBase
       audioTrackPlayer = null;
       videoEncoder.stop();
       audioEncoder.stop();
-      videoFormat = null;
-      audioFormat = null;
+      recordController.resetFormats();
     }
   }
 
@@ -419,7 +447,19 @@ public abstract class FromFileBase
    * @return true if recording, false if not recoding.
    */
   public boolean isRecording() {
-    return recording;
+    return recordController.isRunning();
+  }
+
+  public void pauseRecord() {
+    recordController.pauseRecord();
+  }
+
+  public void resumeRecord() {
+    recordController.resumeRecord();
+  }
+
+  public RecordController.Status getRecordStatus() {
+    return recordController.getStatus();
   }
 
   /**
@@ -512,44 +552,32 @@ public abstract class FromFileBase
 
   @Override
   public void getVideoData(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
-    if (recording) {
-      if (info.flags == MediaCodec.BUFFER_FLAG_KEY_FRAME
-          && !canRecord
-          && videoFormat != null
-          && audioFormat != null) {
-        videoTrack = mediaMuxer.addTrack(videoFormat);
-        audioTrack = mediaMuxer.addTrack(audioFormat);
-        mediaMuxer.start();
-        canRecord = true;
-      }
-      if (canRecord) mediaMuxer.writeSampleData(videoTrack, h264Buffer, info);
-    }
+    fpsListener.calculateFps();
+    recordController.recordVideo(h264Buffer, info);
     if (streaming) getH264DataRtp(h264Buffer, info);
   }
 
   @Override
   public void onVideoFormat(MediaFormat mediaFormat) {
-    videoFormat = mediaFormat;
+    recordController.setVideoFormat(mediaFormat);
   }
 
   protected abstract void getAacDataRtp(ByteBuffer aacBuffer, MediaCodec.BufferInfo info);
 
   @Override
   public void getAacData(ByteBuffer aacBuffer, MediaCodec.BufferInfo info) {
-    if (recording && canRecord) {
-      mediaMuxer.writeSampleData(audioTrack, aacBuffer, info);
-    }
+    recordController.recordAudio(aacBuffer, info);
     if (streaming) getAacDataRtp(aacBuffer, info);
   }
 
   @Override
   public void onAudioFormat(MediaFormat mediaFormat) {
-    audioFormat = mediaFormat;
+    recordController.setAudioFormat(mediaFormat);
   }
 
   @Override
-  public void inputPCMData(byte[] buffer, int size) {
-    if (audioTrackPlayer != null) audioTrackPlayer.write(buffer, 0, size);
-    audioEncoder.inputPCMData(buffer, size);
+  public void inputPCMData(byte[] buffer, int offset, int size) {
+    if (audioTrackPlayer != null) audioTrackPlayer.write(buffer, offset, size);
+    audioEncoder.inputPCMData(buffer, offset, size);
   }
 }

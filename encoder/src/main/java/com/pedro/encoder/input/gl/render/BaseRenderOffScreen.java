@@ -3,7 +3,7 @@ package com.pedro.encoder.input.gl.render;
 import android.content.Context;
 import android.opengl.GLES20;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import com.pedro.encoder.utils.gl.GlUtil;
 import java.nio.FloatBuffer;
 
@@ -29,7 +29,8 @@ public abstract class BaseRenderOffScreen {
   protected int width;
   protected int height;
 
-  public abstract void initGl(int width, int height, Context context);
+  public abstract void initGl(int width, int height, Context context, int previewWidth,
+      int previewHeight);
 
   public abstract void draw();
 

@@ -2,7 +2,6 @@ package com.pedro.rtsp.rtp.sockets;
 
 import android.util.Log;
 import com.pedro.rtsp.rtsp.RtpFrame;
-import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.DatagramPacket;
@@ -16,14 +15,16 @@ import java.net.UnknownHostException;
 
 public class RtpSocketUdp extends BaseRtpSocket {
 
-  private MulticastSocket multicastSocket;
+  private MulticastSocket multicastSocketVideo;
+  private MulticastSocket multicastSocketAudio;
   private DatagramPacket datagramPacket = new DatagramPacket(new byte[] { 0 }, 1);
 
-  public RtpSocketUdp(ConnectCheckerRtsp connectCheckerRtsp) {
-    super(connectCheckerRtsp);
+  public RtpSocketUdp(int videoSourcePort, int audioSourcePort) {
     try {
-      multicastSocket = new MulticastSocket();
-      multicastSocket.setTimeToLive(64);
+      multicastSocketVideo = new MulticastSocket(videoSourcePort);
+      multicastSocketVideo.setTimeToLive(64);
+      multicastSocketAudio = new MulticastSocket(audioSourcePort);
+      multicastSocketAudio.setTimeToLive(64);
     } catch (IOException e) {
       Log.e(TAG, "Error", e);
     }
@@ -39,25 +40,25 @@ public class RtpSocketUdp extends BaseRtpSocket {
   }
 
   @Override
-  public void sendFrame(RtpFrame rtpFrame) {
-    try {
-      sendFrameUDP(rtpFrame);
-    } catch (IOException e) {
-      Log.e(TAG, "TCP send error: ", e);
-      connectCheckerRtsp.onConnectionFailedRtsp("Error send packet, " + e.getMessage());
-    }
+  public void sendFrame(RtpFrame rtpFrame) throws IOException {
+    sendFrameUDP(rtpFrame);
   }
 
   @Override
   public void close() {
-    multicastSocket.close();
+    multicastSocketVideo.close();
+    multicastSocketAudio.close();
   }
 
   private void sendFrameUDP(RtpFrame rtpFrame) throws IOException {
     datagramPacket.setData(rtpFrame.getBuffer());
     datagramPacket.setPort(rtpFrame.getRtpPort());
     datagramPacket.setLength(rtpFrame.getLength());
-    multicastSocket.send(datagramPacket);
+    if (rtpFrame.getChannelIdentifier() == (byte) 2) {
+      multicastSocketVideo.send(datagramPacket);
+    } else {
+      multicastSocketAudio.send(datagramPacket);
+    }
     Log.i(TAG, "wrote packet: "
         + (rtpFrame.getChannelIdentifier() == (byte) 2 ? "Video" : "Audio")
         + ", size: "

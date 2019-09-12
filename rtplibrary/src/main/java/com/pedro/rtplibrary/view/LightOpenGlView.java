@@ -4,7 +4,7 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.util.AttributeSet;
 import android.view.Surface;
 import com.pedro.encoder.input.gl.SurfaceManager;
@@ -66,8 +66,7 @@ public class LightOpenGlView extends OpenGlViewBase {
     releaseSurfaceManager();
     surfaceManager = new SurfaceManager(getHolder().getSurface());
     surfaceManager.makeCurrent();
-    simpleCameraRender.setStreamSize(encoderWidth, encoderHeight);
-    simpleCameraRender.initGl(getContext());
+    simpleCameraRender.initGl(getContext(), encoderWidth, encoderHeight);
     simpleCameraRender.getSurfaceTexture().setOnFrameAvailableListener(this);
     semaphore.release();
     while (running) {
@@ -83,11 +82,9 @@ public class LightOpenGlView extends OpenGlViewBase {
           takePhotoCallback = null;
         }
         synchronized (sync) {
-          if (surfaceManagerEncoder != null) {
+          if (surfaceManagerEncoder != null && !fpsLimiter.limitFPS()) {
             surfaceManagerEncoder.makeCurrent();
             simpleCameraRender.drawFrame(encoderWidth, encoderHeight, false);
-            long ts = simpleCameraRender.getSurfaceTexture().getTimestamp();
-            surfaceManagerEncoder.setPresentationTime(ts);
             surfaceManagerEncoder.swapBuffer();
           }
         }

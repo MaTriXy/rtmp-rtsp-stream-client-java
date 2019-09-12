@@ -50,7 +50,8 @@ public abstract class OnlyAudioBase implements GetAacData, GetMicrophoneData {
       boolean noiseSuppressor) {
     microphoneManager.createMicrophone(sampleRate, isStereo, echoCanceler, noiseSuppressor);
     prepareAudioRtp(isStereo, sampleRate);
-    return audioEncoder.prepareAudioEncoder(bitrate, sampleRate, isStereo);
+    return audioEncoder.prepareAudioEncoder(bitrate, sampleRate, isStereo,
+        microphoneManager.getMaxInputSize());
   }
 
   /**
@@ -84,7 +85,39 @@ public abstract class OnlyAudioBase implements GetAacData, GetMicrophoneData {
     startStreamRtp(url);
   }
 
+  public void reTry(long delay) {
+    reConnect(delay);
+  }
+
   protected abstract void stopStreamRtp();
+
+  //re connection
+  public abstract void setReTries(int reTries);
+
+  public abstract boolean shouldRetry(String reason);
+
+  protected abstract void reConnect(long delay);
+
+  //cache control
+  public abstract void resizeCache(int newSize) throws RuntimeException;
+
+  public abstract int getCacheSize();
+
+  public abstract long getSentAudioFrames();
+
+  public abstract long getSentVideoFrames();
+
+  public abstract long getDroppedAudioFrames();
+
+  public abstract long getDroppedVideoFrames();
+
+  public abstract void resetSentAudioFrames();
+
+  public abstract void resetSentVideoFrames();
+
+  public abstract void resetDroppedAudioFrames();
+
+  public abstract void resetDroppedVideoFrames();
 
   /**
    * Stop stream started with @startStream.
@@ -136,8 +169,8 @@ public abstract class OnlyAudioBase implements GetAacData, GetMicrophoneData {
   }
 
   @Override
-  public void inputPCMData(byte[] buffer, int size) {
-    audioEncoder.inputPCMData(buffer, size);
+  public void inputPCMData(byte[] buffer, int offset, int size) {
+    audioEncoder.inputPCMData(buffer, offset, size);
   }
 
   @Override

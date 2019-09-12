@@ -6,8 +6,6 @@ import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.support.annotation.RequiresApi;
-import android.support.v7.app.AppCompatActivity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
@@ -17,10 +15,13 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
+
 import com.pedro.encoder.input.gl.SpriteGestureController;
+import com.pedro.encoder.input.gl.render.filters.AnalogTVFilterRender;
 import com.pedro.encoder.input.gl.render.filters.AndroidViewFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BasicDeformationFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BeautyFilterRender;
+import com.pedro.encoder.input.gl.render.filters.BlackFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BlurFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BrightnessFilterRender;
 import com.pedro.encoder.input.gl.render.filters.CartoonFilterRender;
@@ -52,23 +53,28 @@ import com.pedro.encoder.input.gl.render.filters.SepiaFilterRender;
 import com.pedro.encoder.input.gl.render.filters.SharpnessFilterRender;
 import com.pedro.encoder.input.gl.render.filters.SnowFilterRender;
 import com.pedro.encoder.input.gl.render.filters.SwirlFilterRender;
-import com.pedro.encoder.input.gl.render.filters.object.SurfaceFilterRender;
 import com.pedro.encoder.input.gl.render.filters.TemperatureFilterRender;
 import com.pedro.encoder.input.gl.render.filters.ZebraFilterRender;
 import com.pedro.encoder.input.gl.render.filters.object.GifObjectFilterRender;
 import com.pedro.encoder.input.gl.render.filters.object.ImageObjectFilterRender;
+import com.pedro.encoder.input.gl.render.filters.object.SurfaceFilterRender;
 import com.pedro.encoder.input.gl.render.filters.object.TextObjectFilterRender;
 import com.pedro.encoder.input.video.CameraOpenException;
 import com.pedro.encoder.utils.gl.TranslateTo;
 import com.pedro.rtplibrary.rtmp.RtmpCamera1;
 import com.pedro.rtplibrary.view.OpenGlView;
 import com.pedro.rtpstreamer.R;
+
+import net.ossrs.rtmp.ConnectCheckerRtmp;
+
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import net.ossrs.rtmp.ConnectCheckerRtmp;
+
+import androidx.annotation.RequiresApi;
+import androidx.appcompat.app.AppCompatActivity;
 
 /**
  * More documentation see:
@@ -135,9 +141,12 @@ public class OpenGlRtmpActivity extends AppCompatActivity
       case R.id.no_filter:
         rtmpCamera1.getGlInterface().setFilter(new NoFilterRender());
         return true;
+      case R.id.analog_tv:
+        rtmpCamera1.getGlInterface().setFilter(new AnalogTVFilterRender());
+        return true;
       case R.id.android_view:
         AndroidViewFilterRender androidViewFilterRender = new AndroidViewFilterRender();
-        androidViewFilterRender.setView(findViewById(R.id.activity_example_rtmp));
+        androidViewFilterRender.setView(findViewById(R.id.switch_camera));
         rtmpCamera1.getGlInterface().setFilter(androidViewFilterRender);
         return true;
       case R.id.basic_deformation:
@@ -145,6 +154,9 @@ public class OpenGlRtmpActivity extends AppCompatActivity
         return true;
       case R.id.beauty:
         rtmpCamera1.getGlInterface().setFilter(new BeautyFilterRender());
+        return true;
+      case R.id.black:
+        rtmpCamera1.getGlInterface().setFilter(new BlackFilterRender());
         return true;
       case R.id.blur:
         rtmpCamera1.getGlInterface().setFilter(new BlurFilterRender());
@@ -329,6 +341,11 @@ public class OpenGlRtmpActivity extends AppCompatActivity
         button.setText(R.string.start_button);
       }
     });
+  }
+
+  @Override
+  public void onNewBitrateRtmp(long bitrate) {
+
   }
 
   @Override

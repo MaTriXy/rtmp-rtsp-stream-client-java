@@ -18,8 +18,8 @@ import android.hardware.camera2.params.StreamConfigurationMap;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.support.annotation.NonNull;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 import android.util.Log;
 import android.util.Size;
 import android.view.MotionEvent;
@@ -27,7 +27,6 @@ import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -67,7 +66,9 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
   private CaptureRequest.Builder builderPreview;
   private CaptureRequest.Builder builderInputSurface;
   private float fingerSpacing = 0;
-  private int zoomLevel = 1;
+  private float zoomLevel = 1.0f;
+  private boolean lanternEnable = false;
+  private boolean running = false;
 
   //Face detector
   public interface FaceDetectorCallback {
@@ -130,7 +131,7 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
           try {
             if (surfaceView != null || textureView != null) {
               cameraCaptureSession.setRepeatingBurst(
-                  Arrays.asList(drawSurface(preview), drawSurface(surfaceEncoder)),
+                  Collections.singletonList(drawSurface(preview, surfaceEncoder)),
                   faceDetectionEnabled ? cb : null, cameraHandler);
             } else {
               cameraCaptureSession.setRepeatingBurst(
@@ -165,10 +166,10 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
     return surface;
   }
 
-  private CaptureRequest drawSurface(Surface surface) {
+  private CaptureRequest drawSurface(Surface... surfaces) {
     try {
       builderInputSurface = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-      builderInputSurface.addTarget(surface);
+      for (Surface surface : surfaces) builderInputSurface.addTarget(surface);
       return builderInputSurface.build();
     } catch (CameraAccessException | IllegalStateException e) {
       Log.e(TAG, "Error", e);
@@ -238,6 +239,9 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
     }
   }
 
+  public CameraCharacteristics getCameraCharacteristics() {
+    return cameraCharacteristics;
+  }
   /**
    * Select camera facing
    *
@@ -256,6 +260,51 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
       }
     } catch (CameraAccessException e) {
       Log.e(TAG, "Error", e);
+    }
+  }
+
+  public boolean isLanternSupported() {
+    return (cameraCharacteristics != null ? cameraCharacteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) : false);
+  }
+
+  public boolean isLanternEnabled() {
+      return lanternEnable;
+  }
+
+  /**
+   * @required: <uses-permission android:name="android.permission.FLASHLIGHT"/>
+   */
+  public void enableLantern() throws Exception {
+    if ((cameraCharacteristics != null) && cameraCharacteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)) {
+      if (builderInputSurface != null) {
+        try {
+          builderInputSurface.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH);
+          cameraCaptureSession.setRepeatingRequest(builderInputSurface.build(), faceDetectionEnabled ? cb : null, null);
+          lanternEnable = true;
+        } catch (CameraAccessException | IllegalStateException e) {
+          Log.e(TAG, "Error", e);
+        }
+      }
+    } else {
+      Log.e(TAG, "Lantern unsupported");
+      throw new Exception("Lantern unsupported");
+    }
+  }
+
+  /**
+   * @required: <uses-permission android:name="android.permission.FLASHLIGHT"/>
+   */
+  public void disableLantern() {
+    if ((cameraCharacteristics != null) && cameraCharacteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)) {
+      if (builderInputSurface != null) {
+        try {
+          builderInputSurface.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF);
+          cameraCaptureSession.setRepeatingRequest(builderInputSurface.build(), faceDetectionEnabled ? cb : null, null);
+          lanternEnable = false;
+        } catch (CameraAccessException | IllegalStateException e) {
+          Log.e(TAG, "Error", e);
+        }
+      }
     }
   }
 
@@ -339,6 +388,7 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
       try {
         cameraManager.openCamera(cameraId.toString(), this, cameraHandler);
         cameraCharacteristics = cameraManager.getCameraCharacteristics(Integer.toString(cameraId));
+        running = true;
         isFrontCamera =
             (LENS_FACING_FRONT == cameraCharacteristics.get(CameraCharacteristics.LENS_FACING));
       } catch (CameraAccessException | SecurityException e) {
@@ -347,6 +397,10 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
     } else {
       Log.e(TAG, "Camera2ApiManager need be prepared, Camera2ApiManager not enabled");
     }
+  }
+
+  public boolean isRunning() {
+    return running;
   }
 
   public void switchCamera() {
@@ -358,44 +412,60 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
     }
   }
 
-  public void setZoom(MotionEvent event) {
-    try {
-      float maxZoom =
-          (cameraCharacteristics.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM)) * 10;
-      Rect m = cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
-      float currentFingerSpacing;
+  public float getMaxZoom() {
+    return (cameraCharacteristics != null ? cameraCharacteristics.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) : 1);
+  }
 
-      if (event.getPointerCount() > 1) {
-        // Multi touch logic
-        currentFingerSpacing = CameraHelper.getFingerSpacing(event);
-        if (fingerSpacing != 0) {
-          if (currentFingerSpacing > fingerSpacing && maxZoom > zoomLevel) {
-            zoomLevel++;
-          } else if (currentFingerSpacing < fingerSpacing && zoomLevel > 1) {
-            zoomLevel--;
-          }
-          int minW = (int) (m.width() / maxZoom);
-          int minH = (int) (m.height() / maxZoom);
-          int difW = m.width() - minW;
-          int difH = m.height() - minH;
-          int cropW = difW / 100 * zoomLevel;
-          int cropH = difH / 100 * zoomLevel;
-          cropW -= cropW & 3;
-          cropH -= cropH & 3;
-          Rect zoom = new Rect(cropW, cropH, m.width() - cropW, m.height() - cropH);
-          if (builderPreview != null) builderPreview.set(CaptureRequest.SCALER_CROP_REGION, zoom);
-          builderInputSurface.set(CaptureRequest.SCALER_CROP_REGION, zoom);
+  public Float getZoom() {
+    return zoomLevel;
+  }
+
+  public void setZoom(Float level) {
+    try {
+      float maxZoom = getMaxZoom();
+      Rect m = cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+
+      if ((level <= maxZoom) && (level >= 1)) {
+        zoomLevel = level;
+        int minW = (int) (m.width() / (maxZoom * 10));
+        int minH = (int) (m.height() / (maxZoom * 10));
+        int difW = m.width() - minW;
+        int difH = m.height() - minH;
+        int cropW = (int) (difW / 10 * level);
+        int cropH = (int) (difH / 10 * level);
+        cropW -= cropW & 3;
+        cropH -= cropH & 3;
+        Rect zoom = new Rect(cropW, cropH, m.width() - cropW, m.height() - cropH);
+        if (builderPreview != null) builderPreview.set(CaptureRequest.SCALER_CROP_REGION, zoom);
+        builderInputSurface.set(CaptureRequest.SCALER_CROP_REGION, zoom);
+
+        if (builderPreview != null) {
+          cameraCaptureSession.setRepeatingRequest(builderPreview.build(),
+                  faceDetectionEnabled ? cb : null, null);
         }
-        fingerSpacing = currentFingerSpacing;
+        cameraCaptureSession.setRepeatingRequest(builderInputSurface.build(),
+                faceDetectionEnabled ? cb : null, null);
       }
-      if (builderPreview != null) {
-        cameraCaptureSession.setRepeatingRequest(builderPreview.build(),
-            faceDetectionEnabled ? cb : null, null);
-      }
-      cameraCaptureSession.setRepeatingRequest(builderInputSurface.build(),
-          faceDetectionEnabled ? cb : null, null);
     } catch (CameraAccessException e) {
       Log.e(TAG, "Error", e);
+    }
+  }
+
+  public void setZoom(MotionEvent event) {
+    float currentFingerSpacing;
+
+    if (event.getPointerCount() > 1) {
+      // Multi touch logic
+      currentFingerSpacing = CameraHelper.getFingerSpacing(event);
+      if (fingerSpacing != 0) {
+        if (currentFingerSpacing > fingerSpacing && getMaxZoom() > zoomLevel) {
+          zoomLevel += 0.1f;
+        } else if (currentFingerSpacing < fingerSpacing && zoomLevel > 1) {
+          zoomLevel -= 0.1f;
+        }
+        setZoom(zoomLevel);
+      }
+      fingerSpacing = currentFingerSpacing;
     }
   }
 
@@ -403,21 +473,27 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
     return isFrontCamera;
   }
 
+  private void resetCameraValues() {
+    lanternEnable = false;
+    zoomLevel = 1.0f;
+  }
+
   public void closeCamera(boolean reOpen) {
     if (reOpen) {
       try {
+        if (surfaceEncoder != null && isOpenGl) return;
         cameraCaptureSession.stopRepeating();
         if (surfaceView != null || textureView != null) {
           cameraCaptureSession.setRepeatingBurst(Collections.singletonList(drawSurface(preview)),
               null, cameraHandler);
-        } else if (surfaceEncoder != null && isOpenGl) {
-          cameraCaptureSession.setRepeatingBurst(
-              Collections.singletonList(drawSurface(surfaceEncoder)), null, cameraHandler);
         }
       } catch (Exception e) {
         Log.e(TAG, "Error", e);
       }
     } else {
+      resetCameraValues();
+
+      cameraCharacteristics = null;
       if (cameraCaptureSession != null) {
         cameraCaptureSession.close();
         cameraCaptureSession = null;
@@ -433,6 +509,7 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
       prepared = false;
       builderPreview = null;
       builderInputSurface = null;
+      running = false;
     }
   }
 

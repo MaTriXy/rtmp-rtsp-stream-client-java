@@ -6,8 +6,6 @@ import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.support.annotation.RequiresApi;
-import android.support.v7.app.AppCompatActivity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
@@ -17,10 +15,13 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
+
 import com.pedro.encoder.input.gl.SpriteGestureController;
+import com.pedro.encoder.input.gl.render.filters.AnalogTVFilterRender;
 import com.pedro.encoder.input.gl.render.filters.AndroidViewFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BasicDeformationFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BeautyFilterRender;
+import com.pedro.encoder.input.gl.render.filters.BlackFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BlurFilterRender;
 import com.pedro.encoder.input.gl.render.filters.BrightnessFilterRender;
 import com.pedro.encoder.input.gl.render.filters.CartoonFilterRender;
@@ -64,11 +65,15 @@ import com.pedro.rtplibrary.rtsp.RtspCamera1;
 import com.pedro.rtplibrary.view.OpenGlView;
 import com.pedro.rtpstreamer.R;
 import com.pedro.rtsp.utils.ConnectCheckerRtsp;
+
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+
+import androidx.annotation.RequiresApi;
+import androidx.appcompat.app.AppCompatActivity;
 
 /**
  * More documentation see:
@@ -135,9 +140,12 @@ public class OpenGlRtspActivity extends AppCompatActivity
       case R.id.no_filter:
         rtspCamera1.getGlInterface().setFilter(new NoFilterRender());
         return true;
+      case R.id.analog_tv:
+        rtspCamera1.getGlInterface().setFilter(new AnalogTVFilterRender());
+        return true;
       case R.id.android_view:
         AndroidViewFilterRender androidViewFilterRender = new AndroidViewFilterRender();
-        androidViewFilterRender.setView(findViewById(R.id.activity_example_rtmp));
+        androidViewFilterRender.setView(findViewById(R.id.switch_camera));
         rtspCamera1.getGlInterface().setFilter(androidViewFilterRender);
         return true;
       case R.id.basic_deformation:
@@ -145,6 +153,9 @@ public class OpenGlRtspActivity extends AppCompatActivity
         return true;
       case R.id.beauty:
         rtspCamera1.getGlInterface().setFilter(new BeautyFilterRender());
+        return true;
+      case R.id.black:
+        rtspCamera1.getGlInterface().setFilter(new BlackFilterRender());
         return true;
       case R.id.blur:
         rtspCamera1.getGlInterface().setFilter(new BlurFilterRender());
@@ -329,6 +340,11 @@ public class OpenGlRtspActivity extends AppCompatActivity
         button.setText(R.string.start_button);
       }
     });
+  }
+
+  @Override
+  public void onNewBitrateRtsp(long bitrate) {
+
   }
 
   @Override

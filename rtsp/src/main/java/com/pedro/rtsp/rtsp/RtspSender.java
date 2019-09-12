@@ -10,12 +10,15 @@ import com.pedro.rtsp.rtp.packets.H264Packet;
 import com.pedro.rtsp.rtp.packets.H265Packet;
 import com.pedro.rtsp.rtp.packets.VideoPacketCallback;
 import com.pedro.rtsp.rtp.sockets.BaseRtpSocket;
+import com.pedro.rtsp.utils.BitrateManager;
 import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 import com.pedro.rtsp.utils.RtpConstants;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created by pedro on 7/11/18.
@@ -24,29 +27,45 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
 
   private final static String TAG = "RtspSender";
-  private final BasePacket videoPacket;
-  private final AacPacket aacPacket;
-  private final BaseRtpSocket rtpSocket;
-  private final BaseSenderReport baseSenderReport;
-  private BlockingQueue<RtpFrame> rtpFrameBlockingQueue =
-      new LinkedBlockingQueue<>(getCacheSize(10));
+  private BasePacket videoPacket;
+  private AacPacket aacPacket;
+  private BaseRtpSocket rtpSocket;
+  private BaseSenderReport baseSenderReport;
+  private volatile BlockingQueue<RtpFrame> rtpFrameBlockingQueue =
+      new LinkedBlockingQueue<>(getDefaultCacheSize());
   private Thread thread;
+  private ConnectCheckerRtsp connectCheckerRtsp;
+  private long audioFramesSent = 0;
+  private long videoFramesSent = 0;
+  private long droppedAudioFrames = 0;
+  private long droppedVideoFrames = 0;
+  private BitrateManager bitrateManager;
 
-  public RtspSender(ConnectCheckerRtsp connectCheckerRtsp, Protocol protocol, byte[] sps,
-      byte[] pps, byte[] vps, int sampleRate) {
+  public RtspSender(ConnectCheckerRtsp connectCheckerRtsp) {
+    this.connectCheckerRtsp = connectCheckerRtsp;
+    bitrateManager = new BitrateManager(connectCheckerRtsp);
+  }
+
+  public void setSocketsInfo(Protocol protocol, int[] videoSourcePorts, int[] audioSourcePorts) {
+    rtpSocket = BaseRtpSocket.getInstance(protocol, videoSourcePorts[0], audioSourcePorts[0]);
+    baseSenderReport =
+        BaseSenderReport.getInstance(protocol, videoSourcePorts[1], audioSourcePorts[1]);
+  }
+
+  public void setVideoInfo(byte[] sps, byte[] pps, byte[] vps) {
     videoPacket =
         vps == null ? new H264Packet(sps, pps, this) : new H265Packet(sps, pps, vps, this);
+  }
+
+  public void setAudioInfo(int sampleRate) {
     aacPacket = new AacPacket(sampleRate, this);
-    rtpSocket = BaseRtpSocket.getInstance(connectCheckerRtsp, protocol);
-    baseSenderReport = BaseSenderReport.getInstance(protocol);
   }
 
   /**
-   * @param size in mb
    * @return number of packets
    */
-  private int getCacheSize(int size) {
-    return size * 1024 * 1024 / RtpConstants.MTU;
+  private int getDefaultCacheSize() {
+    return 10 * 1024 * 1024 / RtpConstants.MTU;
   }
 
   public void setDataStream(OutputStream outputStream, String host) {
@@ -76,6 +95,7 @@ public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
       rtpFrameBlockingQueue.add(rtpFrame);
     } catch (IllegalStateException e) {
       Log.i(TAG, "Video frame discarded");
+      droppedVideoFrames++;
     }
   }
 
@@ -85,6 +105,7 @@ public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
       rtpFrameBlockingQueue.add(rtpFrame);
     } catch (IllegalStateException e) {
       Log.i(TAG, "Audio frame discarded");
+      droppedAudioFrames++;
     }
   }
 
@@ -94,11 +115,26 @@ public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
       public void run() {
         while (!Thread.interrupted()) {
           try {
-            RtpFrame rtpFrame = rtpFrameBlockingQueue.take();
+            RtpFrame rtpFrame = rtpFrameBlockingQueue.poll(1, TimeUnit.SECONDS);
+            if (rtpFrame == null) {
+              Log.i(TAG, "Skipping iteration, frame null");
+              continue;
+            }
             rtpSocket.sendFrame(rtpFrame);
+            //bytes to bits
+            bitrateManager.calculateBitrate(rtpFrame.getLength() * 8);
+            if (rtpFrame.isVideoFrame()) {
+              videoFramesSent++;
+            } else {
+              audioFramesSent++;
+            }
             baseSenderReport.update(rtpFrame);
           } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+          } catch (IOException e) {
+            Thread.currentThread().interrupt();
+            Log.e(TAG, "send error: ", e);
+            connectCheckerRtsp.onConnectionFailedRtsp("Error send packet, " + e.getMessage());
           }
         }
       }
@@ -121,6 +157,57 @@ public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
     baseSenderReport.close();
     rtpSocket.close();
     aacPacket.reset();
-    videoPacket.reset();
+    if (videoPacket != null) videoPacket.reset();
+
+    resetSentAudioFrames();
+    resetSentVideoFrames();
+    resetDroppedAudioFrames();
+    resetDroppedVideoFrames();
+  }
+
+  public void resizeCache(int newSize) {
+    if (newSize < rtpFrameBlockingQueue.size() - rtpFrameBlockingQueue.remainingCapacity()) {
+      throw new RuntimeException("Can't fit current cache inside new cache size");
+    }
+
+    BlockingQueue<RtpFrame> tempQueue = new LinkedBlockingQueue<>(newSize);
+    rtpFrameBlockingQueue.drainTo(tempQueue);
+    rtpFrameBlockingQueue = tempQueue;
+  }
+
+  public int getCacheSize() {
+    return rtpFrameBlockingQueue.size();
+  }
+
+  public long getSentAudioFrames() {
+    return audioFramesSent;
+  }
+
+  public long getSentVideoFrames() {
+    return videoFramesSent;
+  }
+
+  public long getDroppedAudioFrames() {
+    return droppedAudioFrames;
+  }
+
+  public long getDroppedVideoFrames() {
+    return droppedVideoFrames;
+  }
+
+  public void resetSentAudioFrames() {
+    audioFramesSent = 0;
+  }
+
+  public void resetSentVideoFrames() {
+    videoFramesSent = 0;
+  }
+
+  public void resetDroppedAudioFrames() {
+    droppedAudioFrames = 0;
+  }
+
+  public void resetDroppedVideoFrames() {
+    droppedVideoFrames = 0;
   }
 }

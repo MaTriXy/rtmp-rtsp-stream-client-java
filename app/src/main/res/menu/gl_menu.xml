@@ -14,6 +14,10 @@
           android:title="@string/no_filter"
           />
       <item
+          android:id="@+id/analog_tv"
+          android:title="@string/analog_tv"
+          />
+      <item
           android:id="@+id/android_view"
           android:title="@string/android_view"
           />
@@ -24,6 +28,10 @@
       <item
           android:id="@+id/beauty"
           android:title="@string/beauty"
+          />
+      <item
+          android:id="@+id/black"
+          android:title="@string/black"
           />
       <item
           android:id="@+id/blur"

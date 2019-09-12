@@ -3,7 +3,7 @@ package com.pedro.rtplibrary.rtmp;
 import android.content.Context;
 import android.media.MediaCodec;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.view.SurfaceView;
 import android.view.TextureView;
 
@@ -62,6 +62,56 @@ public class RtmpCamera2 extends Camera2Base {
   }
 
   @Override
+  public void resizeCache(int newSize) throws RuntimeException {
+    srsFlvMuxer.resizeFlvTagCache(newSize);
+  }
+
+  @Override
+  public int getCacheSize() {
+    return srsFlvMuxer.getFlvTagCacheSize();
+  }
+
+  @Override
+  public long getSentAudioFrames() {
+    return srsFlvMuxer.getSentAudioFrames();
+  }
+
+  @Override
+  public long getSentVideoFrames() {
+    return srsFlvMuxer.getSentVideoFrames();
+  }
+
+  @Override
+  public long getDroppedAudioFrames() {
+    return srsFlvMuxer.getDroppedAudioFrames();
+  }
+
+  @Override
+  public long getDroppedVideoFrames() {
+    return srsFlvMuxer.getDroppedVideoFrames();
+  }
+
+  @Override
+  public void resetSentAudioFrames() {
+    srsFlvMuxer.resetSentAudioFrames();
+  }
+
+  @Override
+  public void resetSentVideoFrames() {
+    srsFlvMuxer.resetSentVideoFrames();
+  }
+
+  @Override
+  public void resetDroppedAudioFrames() {
+    srsFlvMuxer.resetDroppedAudioFrames();
+  }
+
+  @Override
+  public void resetDroppedVideoFrames() {
+    srsFlvMuxer.resetDroppedVideoFrames();
+  }
+
+  @Override
   public void setAuthorization(String user, String password) {
     srsFlvMuxer.setAuthorization(user, password);
   }
@@ -85,6 +135,21 @@ public class RtmpCamera2 extends Camera2Base {
   @Override
   protected void stopStreamRtp() {
     srsFlvMuxer.stop();
+  }
+
+  @Override
+  public void setReTries(int reTries) {
+    srsFlvMuxer.setReTries(reTries);
+  }
+
+  @Override
+  public boolean shouldRetry(String reason) {
+    return srsFlvMuxer.shouldRetry(reason);
+  }
+
+  @Override
+  public void reConnect(long delay) {
+    srsFlvMuxer.reConnect(delay);
   }
 
   @Override

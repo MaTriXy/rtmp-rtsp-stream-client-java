@@ -4,7 +4,7 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.util.AttributeSet;
 import android.view.Surface;
 import com.pedro.encoder.input.gl.SurfaceManager;
@@ -105,32 +105,28 @@ public class OpenGlView extends OpenGlViewBase {
     releaseSurfaceManager();
     surfaceManager = new SurfaceManager(getHolder().getSurface());
     surfaceManager.makeCurrent();
-    managerRender.setStreamSize(encoderWidth, encoderHeight);
-    managerRender.initGl(previewWidth, previewHeight, getContext());
+    managerRender.initGl(getContext(), encoderWidth, encoderHeight, previewWidth, previewHeight);
     managerRender.getSurfaceTexture().setOnFrameAvailableListener(this);
     semaphore.release();
     try {
       while (running) {
-          if (frameAvailable) {
-            frameAvailable = false;
-            surfaceManager.makeCurrent();
-            managerRender.updateFrame();
-            managerRender.drawOffScreen();
-            managerRender.drawScreen(previewWidth, previewHeight, keepAspectRatio);
-            surfaceManager.swapBuffer();
-            if (takePhotoCallback != null) {
-              takePhotoCallback.onTakePhoto(
-                  GlUtil.getBitmap(previewWidth, previewHeight, encoderWidth, encoderHeight));
-              takePhotoCallback = null;
-            }
-            synchronized (sync) {
-              if (surfaceManagerEncoder != null) {
-                surfaceManagerEncoder.makeCurrent();
-                managerRender.drawScreen(encoderWidth, encoderHeight, false);
-                long ts = managerRender.getSurfaceTexture().getTimestamp();
-                surfaceManagerEncoder.setPresentationTime(ts);
-                surfaceManagerEncoder.swapBuffer();
-              }
+        if (frameAvailable) {
+          frameAvailable = false;
+          surfaceManager.makeCurrent();
+          managerRender.updateFrame();
+          managerRender.drawOffScreen();
+          managerRender.drawScreen(previewWidth, previewHeight, keepAspectRatio);
+          surfaceManager.swapBuffer();
+          if (takePhotoCallback != null) {
+            takePhotoCallback.onTakePhoto(
+                GlUtil.getBitmap(previewWidth, previewHeight, encoderWidth, encoderHeight));
+            takePhotoCallback = null;
+          }
+          synchronized (sync) {
+            if (surfaceManagerEncoder != null  && !fpsLimiter.limitFPS()) {
+              surfaceManagerEncoder.makeCurrent();
+              managerRender.drawScreen(encoderWidth, encoderHeight, false);
+              surfaceManagerEncoder.swapBuffer();
             }
           }
           if (!filterQueue.isEmpty()) {
@@ -140,6 +136,7 @@ public class OpenGlView extends OpenGlViewBase {
             managerRender.enableAA(AAEnabled);
             loadAA = false;
           }
+        }
       }
     } catch (InterruptedException ignore) {
       Thread.currentThread().interrupt();

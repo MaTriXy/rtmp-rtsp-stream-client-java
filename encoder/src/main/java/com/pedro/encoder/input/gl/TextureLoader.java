@@ -3,7 +3,7 @@ package com.pedro.encoder.input.gl;
 import android.opengl.GLES20;
 import android.opengl.GLUtils;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import com.pedro.encoder.utils.gl.GlUtil;
 import com.pedro.encoder.utils.gl.GifStreamObject;
 import com.pedro.encoder.utils.gl.ImageStreamObject;
@@ -19,7 +19,6 @@ public class TextureLoader {
   private TextStreamObject textStreamObject;
   private GifStreamObject gifStreamObject;
   private ImageStreamObject imageStreamObject;
-  private int[] textureId;
 
   public TextureLoader() {
   }
@@ -43,6 +42,7 @@ public class TextureLoader {
   }
 
   public int[] load() {
+    int[] textureId = new int[] { -1 };
     if (textStreamObject != null) {
       textureId = new int[textStreamObject.getNumFrames()];
       GlUtil.createTextures(textStreamObject.getNumFrames(), textureId, 0);
@@ -63,13 +63,7 @@ public class TextureLoader {
         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, gifStreamObject.getGifBitmaps()[i], 0);
       }
       gifStreamObject.recycle();
-    } else {
-      textureId = new int[] { -1 };
     }
     return textureId;
-  }
-
-  public void clear() {
-
   }
 }

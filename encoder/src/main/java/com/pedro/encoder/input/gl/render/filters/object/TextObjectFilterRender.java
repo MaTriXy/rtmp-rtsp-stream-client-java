@@ -1,8 +1,9 @@
 package com.pedro.encoder.input.gl.render.filters.object;
 
+import android.graphics.Typeface;
 import android.opengl.GLES20;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import com.pedro.encoder.utils.gl.TextStreamObject;
 
 /**
@@ -26,8 +27,11 @@ public class TextObjectFilterRender extends BaseObjectFilterRender {
   }
 
   public void setText(String text, float textSize, int textColor) {
-    releaseTextureId();
-    ((TextStreamObject) streamObject).load(text, textSize, textColor);
+    setText(text, textSize, textColor, null);
+  }
+
+  public void setText(String text, float textSize, int textColor, Typeface typeface) {
+    ((TextStreamObject) streamObject).load(text, textSize, textColor, typeface);
     textureLoader.setTextStreamObject((TextStreamObject) streamObject);
     shouldLoad = true;
   }

@@ -20,6 +20,7 @@ public class RtspOnlyAudio extends OnlyAudioBase {
   public RtspOnlyAudio(ConnectCheckerRtsp connectCheckerRtsp) {
     super();
     rtspClient = new RtspClient(connectCheckerRtsp);
+    rtspClient.setOnlyAudio(true);
   }
 
   /**
@@ -29,6 +30,56 @@ public class RtspOnlyAudio extends OnlyAudioBase {
    */
   public void setProtocol(Protocol protocol) {
     rtspClient.setProtocol(protocol);
+  }
+
+  @Override
+  public void resizeCache(int newSize) throws RuntimeException {
+    rtspClient.resizeCache(newSize);
+  }
+
+  @Override
+  public int getCacheSize() {
+    return rtspClient.getCacheSize();
+  }
+
+  @Override
+  public long getSentAudioFrames() {
+    return rtspClient.getSentAudioFrames();
+  }
+
+  @Override
+  public long getSentVideoFrames() {
+    return rtspClient.getSentVideoFrames();
+  }
+
+  @Override
+  public long getDroppedAudioFrames() {
+    return rtspClient.getDroppedAudioFrames();
+  }
+
+  @Override
+  public long getDroppedVideoFrames() {
+    return rtspClient.getDroppedVideoFrames();
+  }
+
+  @Override
+  public void resetSentAudioFrames() {
+    rtspClient.resetSentAudioFrames();
+  }
+
+  @Override
+  public void resetSentVideoFrames() {
+    rtspClient.resetSentVideoFrames();
+  }
+
+  @Override
+  public void resetDroppedAudioFrames() {
+    rtspClient.resetDroppedAudioFrames();
+  }
+
+  @Override
+  public void resetDroppedVideoFrames() {
+    rtspClient.resetDroppedVideoFrames();
   }
 
   @Override
@@ -51,6 +102,21 @@ public class RtspOnlyAudio extends OnlyAudioBase {
   @Override
   protected void stopStreamRtp() {
     rtspClient.disconnect();
+  }
+
+  @Override
+  public void setReTries(int reTries) {
+    rtspClient.setReTries(reTries);
+  }
+
+  @Override
+  public boolean shouldRetry(String reason) {
+    return rtspClient.shouldRetry(reason);
+  }
+
+  @Override
+  public void reConnect(long delay) {
+    rtspClient.reConnect(delay);
   }
 
   @Override

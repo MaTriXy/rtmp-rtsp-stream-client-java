@@ -6,7 +6,7 @@ import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.view.Surface;
 import com.pedro.encoder.R;
 import com.pedro.encoder.input.video.CameraHelper;
@@ -47,7 +47,8 @@ public class CameraRender extends BaseRenderOffScreen {
   }
 
   @Override
-  public void initGl(int width, int height, Context context) {
+  public void initGl(int width, int height, Context context, int previewWidth,
+      int previewHeight) {
     this.width = width;
     this.height = height;
     GlUtil.checkGlError("initGl start");

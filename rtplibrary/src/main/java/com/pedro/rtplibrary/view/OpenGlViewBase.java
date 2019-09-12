@@ -3,13 +3,14 @@ package com.pedro.rtplibrary.view;
 import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import com.pedro.encoder.input.gl.SurfaceManager;
+import com.pedro.encoder.input.video.FpsLimiter;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
@@ -33,6 +34,7 @@ public abstract class OpenGlViewBase extends SurfaceView
   protected SurfaceManager surfaceManager = null;
   protected SurfaceManager surfaceManagerEncoder = null;
 
+  protected FpsLimiter fpsLimiter = new FpsLimiter();
   protected final Semaphore semaphore = new Semaphore(0);
   protected final BlockingQueue<Filter> filterQueue = new LinkedBlockingQueue<>();
   protected final Object sync = new Object();
@@ -58,6 +60,11 @@ public abstract class OpenGlViewBase extends SurfaceView
 
   @Override
   public abstract Surface getSurface();
+
+  @Override
+  public void setFps(int fps) {
+    fpsLimiter.setFPS(fps);
+  }
 
   @Override
   public void takePhoto(TakePhotoCallback takePhotoCallback) {

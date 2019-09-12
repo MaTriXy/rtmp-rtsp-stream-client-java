@@ -9,7 +9,7 @@ import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.util.Log;
 import android.util.Pair;
 import android.view.Surface;
@@ -234,7 +234,10 @@ public class VideoEncoder implements GetCameraData {
   public void start(boolean resetTs) {
     synchronized (sync) {
       spsPpsSetted = false;
-      if (resetTs) presentTimeUs = System.nanoTime() / 1000;
+      if (resetTs) {
+        presentTimeUs = System.nanoTime() / 1000;
+        fpsLimiter.setFPS(fps);
+      }
       videoEncoder.start();
       //surface to buffer
       if (formatVideoEncoder == FormatVideoEncoder.SURFACE
@@ -258,10 +261,10 @@ public class VideoEncoder implements GetCameraData {
           @Override
           public void run() {
             YUVUtil.preAllocateBuffers(width * height * 3 / 2);
-            while (!Thread.interrupted()) {
+            while (running && !Thread.interrupted()) {
               try {
                 Frame frame = queue.take();
-                if (fpsLimiter.limitFPS(fps)) continue;
+                if (fpsLimiter.limitFPS()) continue;
                 byte[] buffer = frame.getBuffer();
                 boolean isYV12 = frame.getFormat() == ImageFormat.YV12;
                 if (!hardwareRotation) {
@@ -275,6 +278,8 @@ public class VideoEncoder implements GetCameraData {
                     : isYV12 ? YUVUtil.YV12toYUV420byColor(buffer, width, height,
                         formatVideoEncoder)
                         : YUVUtil.NV21toYUV420byColor(buffer, width, height, formatVideoEncoder);
+
+                if (Thread.currentThread().isInterrupted()) return;
                 if (Build.VERSION.SDK_INT >= 21) {
                   getDataFromEncoderAPI21(buffer);
                 } else {
@@ -305,13 +310,13 @@ public class VideoEncoder implements GetCameraData {
         thread = null;
       }
       if (videoEncoder != null) {
-        videoEncoder.flush();
+        //First frame encoded so I can flush.
+        if (spsPpsSetted) videoEncoder.flush();
         videoEncoder.stop();
         videoEncoder.release();
         videoEncoder = null;
       }
       queue.clear();
-      fpsLimiter.reset();
       spsPpsSetted = false;
       inputSurface = null;
     }
@@ -355,7 +360,6 @@ public class VideoEncoder implements GetCameraData {
   private void getDataFromSurfaceAPI21() {
     while (!Thread.interrupted()) {
       for (; running; ) {
-        if (fpsLimiter.limitFPS(fps)) continue;
         int outBufferIndex = videoEncoder.dequeueOutputBuffer(videoInfo, 0);
         if (outBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
           MediaFormat mediaFormat = videoEncoder.getOutputFormat();
@@ -389,7 +393,6 @@ public class VideoEncoder implements GetCameraData {
     while (!Thread.interrupted()) {
       ByteBuffer[] outputBuffers = videoEncoder.getOutputBuffers();
       for (; running; ) {
-        if (fpsLimiter.limitFPS(fps)) continue;
         int outBufferIndex = videoEncoder.dequeueOutputBuffer(videoInfo, 10000);
         if (outBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
           MediaFormat mediaFormat = videoEncoder.getOutputFormat();

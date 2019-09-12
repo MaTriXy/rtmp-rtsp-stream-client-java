@@ -6,12 +6,14 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.v4.app.ActivityCompat;
-import android.support.v7.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.appcompat.app.AppCompatActivity;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.GridView;
+import android.widget.TextView;
 import android.widget.Toast;
+import com.pedro.rtpstreamer.backgroundexample.BackgroundActivity;
 import com.pedro.rtpstreamer.customexample.RtmpActivity;
 import com.pedro.rtpstreamer.customexample.RtspActivity;
 import com.pedro.rtpstreamer.defaultexample.ExampleRtmpActivity;
@@ -50,6 +52,8 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_main);
     overridePendingTransition(R.transition.slide_in, R.transition.slide_out);
+    TextView tvVersion = findViewById(R.id.tv_version);
+    tvVersion.setText(getString(R.string.version, BuildConfig.VERSION_NAME));
 
     list = findViewById(R.id.list);
     createList();
@@ -92,6 +96,8 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         getString(R.string.opengl_rtmp), JELLY_BEAN_MR2));
     activities.add(new ActivityLink(new Intent(this, OpenGlRtspActivity.class),
         getString(R.string.opengl_rtsp), JELLY_BEAN_MR2));
+    activities.add(new ActivityLink(new Intent(this, BackgroundActivity.class),
+        getString(R.string.service_rtp), LOLLIPOP));
   }
 
   private void setListAdapter(List<ActivityLink> activities) {

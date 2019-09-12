@@ -3,7 +3,7 @@ package com.pedro.rtplibrary.rtsp;
 import android.content.Context;
 import android.media.MediaCodec;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import com.pedro.encoder.utils.CodecUtil;
@@ -64,6 +64,56 @@ public class RtspCamera1 extends Camera1Base {
     rtspClient.setProtocol(protocol);
   }
 
+  @Override
+  public void resizeCache(int newSize) throws RuntimeException {
+    rtspClient.resizeCache(newSize);
+  }
+
+  @Override
+  public int getCacheSize() {
+    return rtspClient.getCacheSize();
+  }
+
+  @Override
+  public long getSentAudioFrames() {
+    return rtspClient.getSentAudioFrames();
+  }
+
+  @Override
+  public long getSentVideoFrames() {
+    return rtspClient.getSentVideoFrames();
+  }
+
+  @Override
+  public long getDroppedAudioFrames() {
+    return rtspClient.getDroppedAudioFrames();
+  }
+
+  @Override
+  public long getDroppedVideoFrames() {
+    return rtspClient.getDroppedVideoFrames();
+  }
+
+  @Override
+  public void resetSentAudioFrames() {
+    rtspClient.resetSentAudioFrames();
+  }
+
+  @Override
+  public void resetSentVideoFrames() {
+    rtspClient.resetSentVideoFrames();
+  }
+
+  @Override
+  public void resetDroppedAudioFrames() {
+    rtspClient.resetDroppedAudioFrames();
+  }
+
+  @Override
+  public void resetDroppedVideoFrames() {
+    rtspClient.resetDroppedVideoFrames();
+  }
+
   public void setVideoCodec(VideoCodec videoCodec) {
     videoEncoder.setType(videoCodec == VideoCodec.H265 ? CodecUtil.H265_MIME : CodecUtil.H264_MIME);
   }
@@ -87,6 +137,21 @@ public class RtspCamera1 extends Camera1Base {
   @Override
   protected void stopStreamRtp() {
     rtspClient.disconnect();
+  }
+
+  @Override
+  public void setReTries(int reTries) {
+    rtspClient.setReTries(reTries);
+  }
+
+  @Override
+  public boolean shouldRetry(String reason) {
+    return rtspClient.shouldRetry(reason);
+  }
+
+  @Override
+  public void reConnect(long delay) {
+    rtspClient.reConnect(delay);
   }
 
   @Override

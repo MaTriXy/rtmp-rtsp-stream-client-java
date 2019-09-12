@@ -3,7 +3,7 @@ package com.pedro.encoder.input.gl.render.filters.object;
 import android.graphics.Bitmap;
 import android.opengl.GLES20;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
+import androidx.annotation.RequiresApi;
 import com.pedro.encoder.utils.gl.ImageStreamObject;
 
 /**
@@ -27,7 +27,6 @@ public class ImageObjectFilterRender extends BaseObjectFilterRender {
   }
 
   public void setImage(Bitmap bitmap) {
-    releaseTextureId();
     ((ImageStreamObject) streamObject).load(bitmap);
     textureLoader.setImageStreamObject((ImageStreamObject) streamObject);
     shouldLoad = true;
