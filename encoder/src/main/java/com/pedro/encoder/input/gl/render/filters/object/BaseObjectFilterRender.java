@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2024 pedroSG94.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pedro.encoder.input.gl.render.filters.object;
 
 import android.content.Context;
@@ -5,9 +21,9 @@ import android.graphics.PointF;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.Build;
-import android.os.Handler;
-import android.os.Looper;
+
 import androidx.annotation.RequiresApi;
+
 import com.pedro.encoder.R;
 import com.pedro.encoder.input.gl.Sprite;
 import com.pedro.encoder.input.gl.TextureLoader;
@@ -15,6 +31,7 @@ import com.pedro.encoder.input.gl.render.filters.BaseFilterRender;
 import com.pedro.encoder.utils.gl.GlUtil;
 import com.pedro.encoder.utils.gl.StreamObjectBase;
 import com.pedro.encoder.utils.gl.TranslateTo;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -45,12 +62,13 @@ abstract public class BaseObjectFilterRender extends BaseFilterRender {
   private int uObjectHandle = -1;
   protected int uAlphaHandle = -1;
 
-  private FloatBuffer squareVertexObject;
+  protected int fragment = R.raw.object_fragment;
+  private final FloatBuffer squareVertexObject;
 
   protected int[] streamObjectTextureId = new int[] { -1 };
   protected TextureLoader textureLoader = new TextureLoader();
   protected StreamObjectBase streamObject;
-  private Sprite sprite;
+  private final Sprite sprite = new Sprite();
   protected float alpha = 1f;
   protected boolean shouldLoad = false;
 
@@ -59,7 +77,6 @@ abstract public class BaseObjectFilterRender extends BaseFilterRender {
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer();
     squareVertex.put(squareVertexDataFilter).position(0);
-    sprite = new Sprite();
     float[] vertices = sprite.getTransformedVertices();
     squareVertexObject = ByteBuffer.allocateDirect(vertices.length * FLOAT_SIZE_BYTES)
         .order(ByteOrder.nativeOrder())
@@ -72,7 +89,7 @@ abstract public class BaseObjectFilterRender extends BaseFilterRender {
   @Override
   protected void initGlFilter(Context context) {
     String vertexShader = GlUtil.getStringFromRaw(context, R.raw.object_vertex);
-    String fragmentShader = GlUtil.getStringFromRaw(context, R.raw.object_fragment);
+    String fragmentShader = GlUtil.getStringFromRaw(context, fragment);
 
     program = GlUtil.createProgram(vertexShader, fragmentShader);
     aPositionHandle = GLES20.glGetAttribLocation(program, "aPosition");
@@ -88,7 +105,8 @@ abstract public class BaseObjectFilterRender extends BaseFilterRender {
   @Override
   protected void drawFilter() {
     if (shouldLoad) {
-      streamObjectTextureId = textureLoader.load();
+      releaseTexture();
+      streamObjectTextureId = textureLoader.load(streamObject.getBitmaps());
       shouldLoad = false;
     }
 
@@ -123,16 +141,13 @@ abstract public class BaseObjectFilterRender extends BaseFilterRender {
   @Override
   public void release() {
     GLES20.glDeleteProgram(program);
-    //DeleteTextures should be called in main thread or you will have issues.
-    new Handler(Looper.getMainLooper()).post(new Runnable() {
-      @Override
-      public void run() {
-        GLES20.glDeleteTextures(streamObjectTextureId.length, streamObjectTextureId, 0);
-        streamObjectTextureId = new int[] { -1 };
-      }
-    });
+    releaseTexture();
     sprite.reset();
-    if (streamObject != null) streamObject.recycle();
+  }
+
+  private void releaseTexture() {
+    GLES20.glDeleteTextures(streamObjectTextureId.length, streamObjectTextureId, 0);
+    streamObjectTextureId = new int[] { -1 };
   }
 
   public void setAlpha(float alpha) {
@@ -162,9 +177,25 @@ abstract public class BaseObjectFilterRender extends BaseFilterRender {
     return sprite.getTranslation();
   }
 
+  public void setRotation(int angle) {
+    sprite.setRotation(angle);
+  }
+
+  public int getRotation() {
+    return sprite.getRotation();
+  }
+
   public void setDefaultScale(int streamWidth, int streamHeight) {
     sprite.scale(streamObject.getWidth() * 100 / streamWidth,
         streamObject.getHeight() * 100 / streamHeight);
     squareVertexObject.put(sprite.getTransformedVertices()).position(0);
+  }
+
+  public PointF getOriginalScale() {
+    if (streamObject != null) {
+      return new PointF(streamObject.getWidth(), streamObject.getHeight());
+    } else {
+      return new PointF(0, 0);
+    }
   }
 }

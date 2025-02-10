@@ -1,8 +1,26 @@
+/*
+ * Copyright (C) 2024 pedroSG94.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pedro.encoder.utils.gl;
 
 import android.graphics.Bitmap;
 import android.util.Log;
+
 import com.pedro.encoder.utils.gl.gif.GifDecoder;
+
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -55,7 +73,7 @@ public class GifStreamObject extends StreamObjectBase {
   public void recycle() {
     if (gifBitmaps != null) {
       for (int i = 0; i < numFrames; i++) {
-        gifBitmaps[i].recycle();
+        if (gifBitmaps[i] != null && !gifBitmaps[i].isRecycled()) gifBitmaps[i].recycle();
       }
     }
   }
@@ -65,12 +83,13 @@ public class GifStreamObject extends StreamObjectBase {
     return numFrames;
   }
 
-  public int[] getGifDelayFrames() {
-    return gifDelayFrames;
+  @Override
+  public Bitmap[] getBitmaps() {
+    return gifBitmaps;
   }
 
-  public Bitmap[] getGifBitmaps() {
-    return gifBitmaps;
+  public int[] getGifDelayFrames() {
+    return gifDelayFrames;
   }
 
   public int updateFrame(int size) {

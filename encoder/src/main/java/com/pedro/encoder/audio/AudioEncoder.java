@@ -1,16 +1,36 @@
+/*
+ * Copyright (C) 2024 pedroSG94.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pedro.encoder.audio;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
-import android.os.Build;
-import androidx.annotation.RequiresApi;
 import android.util.Log;
+
+import androidx.annotation.NonNull;
+
+import com.pedro.encoder.BaseEncoder;
+import com.pedro.encoder.Frame;
+import com.pedro.encoder.GetFrame;
+import com.pedro.encoder.TimestampMode;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
 import com.pedro.encoder.utils.CodecUtil;
-import java.io.IOException;
+
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -19,199 +39,170 @@ import java.util.List;
  * Encode PCM audio data to ACC and return in a callback
  */
 
-public class AudioEncoder implements GetMicrophoneData {
+public class AudioEncoder extends BaseEncoder implements GetMicrophoneData {
 
-  private String TAG = "AudioEncoder";
-  private MediaCodec audioEncoder;
-  private GetAacData getAacData;
-  private MediaCodec.BufferInfo audioInfo = new MediaCodec.BufferInfo();
-  private long presentTimeUs;
-  private boolean running;
-
-  //default parameters for encoder
-  private CodecUtil.Force force = CodecUtil.Force.FIRST_COMPATIBLE_FOUND;
+  private final GetAudioData getAudioData;
   private int bitRate = 64 * 1024;  //in kbps
   private int sampleRate = 32000; //in hz
+  public static final int inputSize = 8192;
   private boolean isStereo = true;
-  private boolean canFlush = false;
-  private final Object sync = new Object();
+  private GetFrame getFrame;
+  private float tsBuffer = 0;
 
-  public AudioEncoder(GetAacData getAacData) {
-    this.getAacData = getAacData;
+  public AudioEncoder(GetAudioData getAudioData) {
+    this.getAudioData = getAudioData;
+    typeError = CodecUtil.CodecTypeError.AUDIO_CODEC;
+    type = CodecUtil.AAC_MIME;
+    TAG = "AudioEncoder";
   }
 
   /**
    * Prepare encoder with custom parameters
    */
-  public boolean prepareAudioEncoder(int bitRate, int sampleRate, boolean isStereo,
-      int maxInputSize) {
-    this.sampleRate = sampleRate;
-    try {
-      List<MediaCodecInfo> encoders = new ArrayList<>();
-      if (force == CodecUtil.Force.HARDWARE) {
-        encoders = CodecUtil.getAllHardwareEncoders(CodecUtil.AAC_MIME);
-      } else if (force == CodecUtil.Force.SOFTWARE) {
-        encoders = CodecUtil.getAllSoftwareEncoders(CodecUtil.AAC_MIME);
-      }
+  public boolean prepareAudioEncoder(int bitRate, int sampleRate, boolean isStereo) {
+    if (prepared) stop();
 
-      if (force == CodecUtil.Force.FIRST_COMPATIBLE_FOUND) {
-        MediaCodecInfo encoder = chooseAudioEncoder(CodecUtil.AAC_MIME);
-        if (encoder != null) {
-          audioEncoder = MediaCodec.createByCodecName(encoder.getName());
-        } else {
-          Log.e(TAG, "Valid encoder not found");
-          return false;
-        }
+    this.bitRate = bitRate;
+    this.sampleRate = sampleRate;
+    this.isStereo = isStereo;
+    isBufferMode = true;
+
+    try {
+      if (type.equals(CodecUtil.G711_MIME)) {
+        g711Codec.configure(sampleRate, isStereo ? 2 : 1);
+        setCallback();
+        running = false;
+        Log.i(TAG, "prepared");
+        prepared = true;
+        return true;
+      }
+      MediaCodecInfo encoder = chooseEncoder(type);
+      if (encoder != null) {
+        Log.i(TAG, "Encoder selected " + encoder.getName());
+        codec = MediaCodec.createByCodecName(encoder.getName());
       } else {
-        if (encoders.isEmpty()) {
-          Log.e(TAG, "Valid encoder not found");
-          return false;
-        } else {
-          audioEncoder = MediaCodec.createByCodecName(encoders.get(0).getName());
-        }
+        Log.e(TAG, "Valid encoder not found");
+        return false;
       }
 
       int channelCount = (isStereo) ? 2 : 1;
-      MediaFormat audioFormat =
-          MediaFormat.createAudioFormat(CodecUtil.AAC_MIME, sampleRate, channelCount);
+      MediaFormat audioFormat = MediaFormat.createAudioFormat(type, sampleRate, channelCount);
       audioFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
-      audioFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxInputSize);
+      audioFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, inputSize);
       audioFormat.setInteger(MediaFormat.KEY_AAC_PROFILE,
           MediaCodecInfo.CodecProfileLevel.AACObjectLC);
-      audioEncoder.configure(audioFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+      setCallback();
+      codec.configure(audioFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
       running = false;
+      Log.i(TAG, "prepared");
+      prepared = true;
       return true;
-    } catch (IOException | IllegalStateException e) {
+    } catch (Exception e) {
       Log.e(TAG, "Create AudioEncoder failed.", e);
+      this.stop();
       return false;
     }
   }
 
-  public void setForce(CodecUtil.Force force) {
-    this.force = force;
+  public void setGetFrame(GetFrame getFrame) {
+    this.getFrame = getFrame;
   }
 
   /**
    * Prepare encoder with default parameters
    */
   public boolean prepareAudioEncoder() {
-    return prepareAudioEncoder(bitRate, sampleRate, isStereo, 0);
+    return prepareAudioEncoder(bitRate, sampleRate, isStereo);
   }
 
-  public void start() {
-    synchronized (sync) {
-      presentTimeUs = System.nanoTime() / 1000;
-      audioEncoder.start();
-      running = true;
-      Log.i(TAG, "AudioEncoder started");
-    }
+  @Override
+  public void start(boolean resetTs) {
+    if (resetTs) tsBuffer = 0;
+    shouldReset = resetTs;
+    Log.i(TAG, "started");
   }
 
-  public void stop() {
-    synchronized (sync) {
-      running = false;
-      if (audioEncoder != null) {
-        //First frame encoded so I can flush.
-        if (canFlush) audioEncoder.flush();
-        audioEncoder.stop();
-        audioEncoder.release();
-        audioEncoder = null;
-      }
-      canFlush = false;
-      Log.i(TAG, "AudioEncoder stopped");
+  @Override
+  protected void stopImp() {
+    Log.i(TAG, "stopped");
+  }
+
+  @Override
+  public boolean reset() {
+    stop(false);
+    boolean result = prepareAudioEncoder(bitRate, sampleRate, isStereo);
+    if (!result) return false;
+    restart();
+    return true;
+  }
+
+  @Override
+  protected Frame getInputFrame() throws InterruptedException {
+    return getFrame != null ? getFrame.getInputFrame() : queue.take();
+  }
+
+  @Override
+  protected long calculatePts(Frame frame, long presentTimeUs) {
+    long pts;
+    if (timestampMode == TimestampMode.CLOCK) {
+      pts = Math.max(0, frame.getTimeStamp() - presentTimeUs);
+    } else {
+      int channels = isStereo ? 2 : 1;
+      tsBuffer += (long) ((frame.getSize() / (channels * 2f) / sampleRate) * 1_000_000f);
+      pts = (long) tsBuffer;
     }
+    return pts;
+  }
+
+  @Override
+  protected void checkBuffer(@NonNull ByteBuffer byteBuffer,
+      @NonNull MediaCodec.BufferInfo bufferInfo) {
+    fixTimeStamp(bufferInfo);
+  }
+
+  @Override
+  protected void sendBuffer(@NonNull ByteBuffer byteBuffer,
+      @NonNull MediaCodec.BufferInfo bufferInfo) {
+    getAudioData.getAudioData(byteBuffer, bufferInfo);
   }
 
   /**
    * Set custom PCM data.
    * Use it after prepareAudioEncoder(int sampleRate, int channel).
    * Used too with microphone.
-   *
-   * @param buffer PCM buffer
-   * @param size Min PCM buffer size
    */
   @Override
-  public void inputPCMData(final byte[] buffer, final int offset, final int size) {
-    if (Build.VERSION.SDK_INT >= 21) {
-      getDataFromEncoderAPI21(buffer, offset, size);
+  public void inputPCMData(Frame frame) {
+    if (running && !queue.offer(frame)) {
+      Log.i(TAG, "frame discarded");
+    }
+  }
+
+  @Override
+  protected MediaCodecInfo chooseEncoder(String mime) {
+    List<MediaCodecInfo> mediaCodecInfoList;
+    if (codecType == CodecUtil.CodecType.HARDWARE) {
+      mediaCodecInfoList = CodecUtil.getAllHardwareEncoders(CodecUtil.AAC_MIME);
+    } else if (codecType == CodecUtil.CodecType.SOFTWARE) {
+      mediaCodecInfoList = CodecUtil.getAllSoftwareEncoders(CodecUtil.AAC_MIME);
+    } else if (codecType == CodecUtil.CodecType.CBR_PRIORITY) {
+      mediaCodecInfoList = CodecUtil.getAllEncodersCbrPriority(mime);
     } else {
-      getDataFromEncoder(buffer, offset, size);
-    }
-  }
-
-  @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
-  private void getDataFromEncoderAPI21(byte[] data, int offset, int size) {
-    int inBufferIndex = audioEncoder.dequeueInputBuffer(-1);
-    if (inBufferIndex >= 0) {
-      ByteBuffer bb = audioEncoder.getInputBuffer(inBufferIndex);
-      bb.put(data, offset, size);
-      long pts = System.nanoTime() / 1000 - presentTimeUs;
-      audioEncoder.queueInputBuffer(inBufferIndex, 0, size, pts, 0);
+      //Priority: hardware > software
+      mediaCodecInfoList = CodecUtil.getAllEncoders(mime, true);
     }
 
-    for (; running; ) {
-      int outBufferIndex = audioEncoder.dequeueOutputBuffer(audioInfo, 0);
-      if (outBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-        getAacData.onAudioFormat(audioEncoder.getOutputFormat());
-        canFlush = true;
-      } else if (outBufferIndex >= 0) {
-        //This ByteBuffer is AAC
-        ByteBuffer bb = audioEncoder.getOutputBuffer(outBufferIndex);
-        getAacData.getAacData(bb, audioInfo);
-        audioEncoder.releaseOutputBuffer(outBufferIndex, false);
-      } else {
-        break;
-      }
-    }
-  }
-
-  private void getDataFromEncoder(byte[] data, int offset, int size) {
-    ByteBuffer[] inputBuffers = audioEncoder.getInputBuffers();
-    ByteBuffer[] outputBuffers = audioEncoder.getOutputBuffers();
-
-    int inBufferIndex = audioEncoder.dequeueInputBuffer(-1);
-    if (inBufferIndex >= 0) {
-      ByteBuffer bb = inputBuffers[inBufferIndex];
-      bb.clear();
-      bb.put(data, offset, size);
-      long pts = System.nanoTime() / 1000 - presentTimeUs;
-      audioEncoder.queueInputBuffer(inBufferIndex, 0, size, pts, 0);
-    }
-
-    for (; running; ) {
-      int outBufferIndex = audioEncoder.dequeueOutputBuffer(audioInfo, 0);
-      if (outBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-        getAacData.onAudioFormat(audioEncoder.getOutputFormat());
-        canFlush = true;
-      } else if (outBufferIndex >= 0) {
-        //This ByteBuffer is AAC
-        ByteBuffer bb = outputBuffers[outBufferIndex];
-        getAacData.getAacData(bb, audioInfo);
-        audioEncoder.releaseOutputBuffer(outBufferIndex, false);
-      } else {
-        break;
-      }
-    }
-  }
-
-  private MediaCodecInfo chooseAudioEncoder(String mime) {
-    List<MediaCodecInfo> mediaCodecInfoList = CodecUtil.getAllEncoders(mime);
-    for (MediaCodecInfo mediaCodecInfo : mediaCodecInfoList) {
-      String name = mediaCodecInfo.getName().toLowerCase();
-      if (!name.contains("omx.google")) return mediaCodecInfo;
-    }
-    if (mediaCodecInfoList.size() > 0) {
-      return mediaCodecInfoList.get(0);
-    } else {
-      return null;
-    }
+    Log.i(TAG, mediaCodecInfoList.size() + " encoders found");
+    if (mediaCodecInfoList.isEmpty()) return null;
+    else return mediaCodecInfoList.get(0);
   }
 
   public void setSampleRate(int sampleRate) {
     this.sampleRate = sampleRate;
   }
 
-  public boolean isRunning() {
-    return running;
+  @Override
+  public void formatChanged(@NonNull MediaCodec mediaCodec, @NonNull MediaFormat mediaFormat) {
+    getAudioData.onAudioFormat(mediaFormat);
   }
 }

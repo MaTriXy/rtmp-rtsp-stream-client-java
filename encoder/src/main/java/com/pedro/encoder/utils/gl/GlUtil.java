@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2024 pedroSG94.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pedro.encoder.utils.gl;
 
 import android.content.Context;
@@ -8,8 +24,10 @@ import android.opengl.EGL14;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.os.Build;
-import androidx.annotation.RequiresApi;
 import android.util.Log;
+
+import androidx.annotation.RequiresApi;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,8 +40,6 @@ import java.nio.ByteBuffer;
 @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
 public class GlUtil {
 
-  private static final String TAG = "GlUtil";
-
   public static int loadShader(int shaderType, String source) {
     int shader = GLES20.glCreateShader(shaderType);
     checkGlError("glCreateShader type=" + shaderType);
@@ -31,30 +47,21 @@ public class GlUtil {
     GLES20.glCompileShader(shader);
     int[] compiled = new int[1];
     GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0);
-    if (compiled[0] == 0) {
-      Log.e(TAG, "Could not compile shader " + shaderType + ":");
-      Log.e(TAG, " " + GLES20.glGetShaderInfoLog(shader));
+    if (compiled[0] == GLES20.GL_FALSE) {
+      String message = "Could not compile shader " + shaderType + ": " + GLES20.glGetShaderInfoLog(shader);
       GLES20.glDeleteShader(shader);
-      shader = 0;
+      throw new RuntimeException(message);
     }
     return shader;
   }
 
   public static int createProgram(String vertexSource, String fragmentSource) {
     int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexSource);
-    if (vertexShader == 0) {
-      return 0;
-    }
     int pixelShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource);
-    if (pixelShader == 0) {
-      return 0;
-    }
 
     int program = GLES20.glCreateProgram();
     checkGlError("glCreateProgram");
-    if (program == 0) {
-      Log.e(TAG, "Could not create program");
-    }
+    if (program == 0) throw new RuntimeException("Could not create program");
     GLES20.glAttachShader(program, vertexShader);
     checkGlError("glAttachShader");
     GLES20.glAttachShader(program, pixelShader);
@@ -63,19 +70,18 @@ public class GlUtil {
     int[] linkStatus = new int[1];
     GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0);
     if (linkStatus[0] != GLES20.GL_TRUE) {
-      Log.e(TAG, "Could not link program: ");
-      Log.e(TAG, GLES20.glGetProgramInfoLog(program));
+      String message = "Could not link program: " + GLES20.glGetProgramInfoLog(program);
       GLES20.glDeleteProgram(program);
-      program = 0;
+      throw new RuntimeException(message);
     }
     return program;
   }
 
-  public static void createTextures(int cantidad, int[] texturesId, int position) {
-    GLES20.glGenTextures(cantidad, texturesId, position);
-    for (int i = 0; i < cantidad; i++) {
-      GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + position + i);
-      GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texturesId[position + i]);
+  public static void createTextures(int quantity, int[] texturesId, int offset) {
+    GLES20.glGenTextures(quantity, texturesId, offset);
+    for (int i = offset; i < quantity; i++) {
+      GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + i);
+      GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texturesId[i]);
       GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
       GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
       GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
@@ -85,11 +91,11 @@ public class GlUtil {
     }
   }
 
-  public static void createExternalTextures(int cantidad, int[] texturesId, int position) {
-    GLES20.glGenTextures(cantidad, texturesId, position);
-    for (int i = 0; i < cantidad; i++) {
-      GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + position + i);
-      GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texturesId[position + i]);
+  public static void createExternalTextures(int quantity, int[] texturesId, int offset) {
+    GLES20.glGenTextures(quantity, texturesId, offset);
+    for (int i = offset; i < quantity; i++) {
+      GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + i);
+      GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texturesId[i]);
       GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER,
           GLES20.GL_LINEAR);
       GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER,
@@ -115,7 +121,7 @@ public class GlUtil {
       str = baos.toString();
       is.close();
     } catch (IOException e) {
-      str = "";
+      throw new RuntimeException("Read shader from disk failed: " + e.getMessage());
     }
     return str;
   }
@@ -123,32 +129,29 @@ public class GlUtil {
   public static void checkGlError(String op) {
     int error = GLES20.glGetError();
     if (error != GLES20.GL_NO_ERROR) {
-      Log.e(TAG, op + ": glError " + error);
-      throw new RuntimeException(op + ": glError " + error);
+      throw new RuntimeException(op + ". GL error: " + error);
     }
   }
 
   public static void checkEglError(String msg) {
     int error = EGL14.eglGetError();
     if (error != EGL14.EGL_SUCCESS) {
-      throw new RuntimeException(msg + ": EGL error: 0x" + Integer.toHexString(error));
+      throw new RuntimeException(msg + ". EGL error: " + error);
     }
   }
 
-  public static Bitmap getBitmap(int originalWidth, int originalHeight, int finalWidth,
-      int finalHeight) {
+  public static Bitmap getBitmap(int streamWidth, int streamHeight) {
     //Get opengl buffer
-    ByteBuffer buffer = ByteBuffer.allocateDirect(originalWidth * originalHeight * 4);
-    GLES20.glReadPixels(0, 0, originalWidth, originalHeight, GLES20.GL_RGBA,
+    ByteBuffer buffer = ByteBuffer.allocateDirect(streamWidth * streamHeight * 4);
+    GLES20.glReadPixels(0, 0, streamWidth, streamHeight, GLES20.GL_RGBA,
         GLES20.GL_UNSIGNED_BYTE, buffer);
     //Create bitmap preview resolution
-    Bitmap bitmap = Bitmap.createBitmap(originalWidth, originalHeight, Bitmap.Config.ARGB_8888);
+    Bitmap bitmap = Bitmap.createBitmap(streamWidth, streamHeight, Bitmap.Config.ARGB_8888);
     //Set buffer to bitmap
     bitmap.copyPixelsFromBuffer(buffer);
     //Scale to stream resolution
-    bitmap = Bitmap.createScaledBitmap(bitmap, finalWidth, finalHeight, false);
     //Flip vertical
-    return flipVerticalBitmap(bitmap, finalWidth, finalHeight);
+    return flipVerticalBitmap(bitmap, streamWidth, streamHeight);
   }
 
   private static Bitmap flipVerticalBitmap(Bitmap bitmap, int width, int height) {

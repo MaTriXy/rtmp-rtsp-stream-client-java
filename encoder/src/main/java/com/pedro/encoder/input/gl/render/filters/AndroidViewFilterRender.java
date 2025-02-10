@@ -1,8 +1,25 @@
+/*
+ * Copyright (C) 2024 pedroSG94.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pedro.encoder.input.gl.render.filters;
 
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.PointF;
 import android.graphics.PorterDuff;
 import android.graphics.SurfaceTexture;
 import android.opengl.GLES11Ext;
@@ -13,12 +30,18 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Surface;
 import android.view.View;
+
 import androidx.annotation.RequiresApi;
+
 import com.pedro.encoder.R;
+import com.pedro.encoder.input.gl.AndroidViewSprite;
 import com.pedro.encoder.utils.gl.GlUtil;
 import com.pedro.encoder.utils.gl.TranslateTo;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Created by pedro on 4/02/18.
@@ -44,16 +67,21 @@ public class AndroidViewFilterRender extends BaseFilterRender {
   private int uSamplerHandle = -1;
   private int uSamplerViewHandle = -1;
 
-  private int[] viewId = new int[1];
+  private int[] viewId = new int[] { -1, -1 };
   private View view;
-  private SurfaceTexture surfaceTexture;
-  private Surface surface;
-  private Handler mainHandler;
+  //Use 2 surfaces to avoid block render thread
+  private SurfaceTexture surfaceTexture, surfaceTexture2;
+  private Surface surface, surface2;
+  private final Handler mainHandler;
+  private boolean running = false;
+  private ExecutorService thread = null;
+  private boolean hardwareMode = true;
+  private final AndroidViewSprite sprite;
+  private volatile Status renderingStatus = Status.DONE1;
 
-  private int rotation;
-  private float positionX, positionY;
-  private float scaleX = 1f, scaleY = 1f;
-  private float viewX, viewY;
+  private enum Status {
+    RENDER1, RENDER2, DONE1, DONE2
+  }
 
   public AndroidViewFilterRender() {
     squareVertex = ByteBuffer.allocateDirect(squareVertexDataFilter.length * FLOAT_SIZE_BYTES)
@@ -62,6 +90,7 @@ public class AndroidViewFilterRender extends BaseFilterRender {
     squareVertex.put(squareVertexDataFilter).position(0);
     Matrix.setIdentityM(MVPMatrix, 0);
     Matrix.setIdentityM(STMatrix, 0);
+    sprite = new AndroidViewSprite();
     mainHandler = new Handler(Looper.getMainLooper());
   }
 
@@ -78,29 +107,37 @@ public class AndroidViewFilterRender extends BaseFilterRender {
     uSamplerHandle = GLES20.glGetUniformLocation(program, "uSampler");
     uSamplerViewHandle = GLES20.glGetUniformLocation(program, "uSamplerView");
 
-    GlUtil.createExternalTextures(1, viewId, 0);
+    GlUtil.createExternalTextures(viewId.length, viewId, 0);
     surfaceTexture = new SurfaceTexture(viewId[0]);
+    surfaceTexture2 = new SurfaceTexture(viewId[1]);
     surface = new Surface(surfaceTexture);
+    surface2 = new Surface(surfaceTexture2);
   }
 
   @Override
   protected void drawFilter() {
-    surfaceTexture.setDefaultBufferSize(getPreviewWidth(), getPreviewHeight());
-    if (view != null) {
-      mainHandler.post(new Runnable() {
-        @Override
-        public void run() {
-          Canvas canvas = surface.lockCanvas(null);
-          canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
-          canvas.translate(positionX, positionY);
-          canvas.rotate(rotation, viewX / 2f, viewY / 2f);
-          canvas.scale(scaleX, scaleY);
-          view.draw(canvas);
-          surface.unlockCanvasAndPost(canvas);
-        }
-      });
+    final Status status = renderingStatus;
+    switch (status) {
+      case DONE1:
+        surfaceTexture.setDefaultBufferSize(getPreviewWidth(), getPreviewHeight());
+        surfaceTexture.updateTexImage();
+        renderingStatus = Status.RENDER2;
+        break;
+      case DONE2:
+        surfaceTexture2.setDefaultBufferSize(getPreviewWidth(), getPreviewHeight());
+        surfaceTexture2.updateTexImage();
+        renderingStatus = Status.RENDER1;
+        break;
+      case RENDER1:
+        surfaceTexture2.setDefaultBufferSize(getPreviewWidth(), getPreviewHeight());
+        surfaceTexture2.updateTexImage();
+        break;
+      case RENDER2:
+      default:
+        surfaceTexture.setDefaultBufferSize(getPreviewWidth(), getPreviewHeight());
+        surfaceTexture.updateTexImage();
+        break;
     }
-    surfaceTexture.updateTexImage();
 
     GLES20.glUseProgram(program);
 
@@ -123,12 +160,27 @@ public class AndroidViewFilterRender extends BaseFilterRender {
     //android view
     GLES20.glUniform1i(uSamplerViewHandle, 5);
     GLES20.glActiveTexture(GLES20.GL_TEXTURE5);
-    GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, viewId[0]);
+
+    switch (status) {
+      case DONE2:
+      case RENDER1:
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, viewId[1]);
+        break;
+      case RENDER2:
+      case DONE1:
+      default:
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, viewId[0]);
+        break;
+    }
   }
 
   @Override
   public void release() {
+    stopRender();
     GLES20.glDeleteProgram(program);
+    viewId = new int[] { -1, -1 };
+    surfaceTexture.release();
+    surfaceTexture2.release();
   }
 
   public View getView() {
@@ -136,11 +188,12 @@ public class AndroidViewFilterRender extends BaseFilterRender {
   }
 
   public void setView(final View view) {
+    stopRender();
     this.view = view;
     if (view != null) {
       view.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-      viewX = view.getMeasuredWidth();
-      viewY = view.getMeasuredHeight();
+      sprite.setView(view);
+      startRender();
     }
   }
 
@@ -150,68 +203,113 @@ public class AndroidViewFilterRender extends BaseFilterRender {
    * @param y Position in percent
    */
   public void setPosition(float x, float y) {
-    int previewX = getPreviewWidth();
-    int previewY = getPreviewHeight();
-    this.positionX = previewX * x / 100f;
-    this.positionY = previewY * y / 100f;
+    sprite.translate(x, y);
   }
 
   public void setPosition(TranslateTo positionTo) {
-    int previewX = getPreviewWidth();
-    int previewY = getPreviewHeight();
-    switch (positionTo) {
-      case TOP:
-        this.positionX = previewX / 2f - (viewX / 2f);
-        this.positionY = 0f;
-        break;
-      case LEFT:
-        this.positionX = 0;
-        this.positionY = previewY / 2f - (viewY / 2f);
-        break;
-      case RIGHT:
-        this.positionX = previewX - viewX;
-        this.positionY = previewY / 2f - (viewY / 2f);
-        break;
-      case BOTTOM:
-        this.positionX = previewX / 2f - (viewX / 2f);
-        this.positionY = previewY - viewY;
-        break;
-      case CENTER:
-        this.positionX = previewX / 2f - (viewX / 2f);
-        this.positionY = previewY / 2f - (viewY / 2f);
-        break;
-      case TOP_RIGHT:
-        this.positionX = previewX - viewX;
-        this.positionY = 0;
-        break;
-      case BOTTOM_LEFT:
-        this.positionX = 0;
-        this.positionY = previewY - viewY;
-        break;
-      case BOTTOM_RIGHT:
-        this.positionX = previewX - viewX;
-        this.positionY = previewY - viewY;
-        break;
-      case TOP_LEFT:
-      default:
-        this.positionX = 0;
-        this.positionY = 0;
-        break;
-    }
+    sprite.translate(positionTo);
   }
 
   public void setRotation(int rotation) {
-    if (rotation < 0) {
-      this.rotation = 0;
-    } else if (rotation > 360) {
-      this.rotation = 360;
-    } else {
-      this.rotation = rotation;
-    }
+    sprite.setRotation(rotation);
   }
 
   public void setScale(float scaleX, float scaleY) {
-    this.scaleX = scaleX;
-    this.scaleY = scaleY;
+    sprite.scale(scaleX, scaleY);
+  }
+
+  public PointF getScale() {
+    return sprite.getScale();
+  }
+
+  public PointF getPosition() {
+    return sprite.getTranslation();
+  }
+
+  public int getRotation() {
+    return sprite.getRotation();
+  }
+
+  public boolean isHardwareMode() {
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && hardwareMode;
+  }
+
+  /**
+   * Draw in surface using hardware canvas. True by default
+   */
+  public void setHardwareMode(boolean hardwareMode) {
+    this.hardwareMode = hardwareMode;
+  }
+
+  private void startRender() {
+    running = true;
+    thread = Executors.newSingleThreadExecutor();
+    thread.execute(() -> {
+      while (running) {
+        final Status status = renderingStatus;
+        if (status == Status.RENDER1 || status == Status.RENDER2) {
+          final Canvas canvas;
+          try {
+            if (isHardwareMode()) {
+              canvas = status == Status.RENDER1 ? surface.lockHardwareCanvas() : surface2.lockHardwareCanvas();
+            } else {
+              canvas = status == Status.RENDER1 ? surface.lockCanvas(null) : surface2.lockCanvas(null);
+            }
+          } catch (IllegalStateException e) {
+            continue;
+          }
+
+          sprite.calculateDefaultScale(getPreviewWidth(), getPreviewHeight());
+          PointF canvasPosition = sprite.getCanvasPosition(getPreviewWidth(), getPreviewHeight());
+          PointF canvasScale = sprite.getCanvasScale(getPreviewWidth(), getPreviewHeight());
+          PointF rotationAxis = sprite.getRotationAxis();
+          int rotation = sprite.getRotation();
+
+          canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+          canvas.translate(canvasPosition.x, canvasPosition.y);
+          canvas.scale(canvasScale.x, canvasScale.y);
+          canvas.rotate(rotation, rotationAxis.x, rotationAxis.y);
+          try {
+            view.draw(canvas);
+            if (status == Status.RENDER1) {
+              surface.unlockCanvasAndPost(canvas);
+              renderingStatus = Status.DONE1;
+            } else {
+              surface2.unlockCanvasAndPost(canvas);
+              renderingStatus = Status.DONE2;
+            }
+            //Sometimes draw could crash if you don't use main thread. Ensuring you can render always
+          } catch (Exception e) {
+            mainHandler.post(() -> {
+              view.draw(canvas);
+              if (status == Status.RENDER1) {
+                surface.unlockCanvasAndPost(canvas);
+                renderingStatus = Status.DONE1;
+              } else {
+                surface2.unlockCanvasAndPost(canvas);
+                renderingStatus = Status.DONE2;
+              }
+            });
+          }
+        }
+        else {
+          // not rendering, no need to try again immediately
+          try {
+            Thread.sleep(10);
+          } catch (InterruptedException e) {
+
+          }
+        }
+      }
+    });
+  }
+
+  private void stopRender() {
+    running = false;
+    if (thread != null) {
+      thread.shutdownNow();
+      thread = null;
+    }
+    renderingStatus = Status.DONE1;
   }
 }

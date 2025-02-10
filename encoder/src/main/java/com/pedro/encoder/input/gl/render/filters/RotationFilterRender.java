@@ -1,12 +1,31 @@
+/*
+ * Copyright (C) 2024 pedroSG94.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pedro.encoder.input.gl.render.filters;
 
 import android.content.Context;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.Build;
+
 import androidx.annotation.RequiresApi;
+
 import com.pedro.encoder.R;
 import com.pedro.encoder.utils.gl.GlUtil;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -97,8 +116,33 @@ public class RotationFilterRender extends BaseFilterRender {
     this.rotation = rotation;
     //Set rotation
     Matrix.setRotateM(rotationMatrix, 0, rotation, 0, 0, 1.0f);
+    Matrix.scaleM(rotationMatrix, 0, 1f, 1f, 0f);
     //Translation
     //Matrix.translateM(rotationMatrix, 0, 0f, 0f, 0f);
+    // Combine the rotation matrix with the projection and camera view
+    Matrix.multiplyMM(MVPMatrix, 0, rotationMatrix, 0, MVPMatrix, 0);
+  }
+
+  /**
+   * Keep aspect ratio if you rotate 90º or 270º.
+   * @param rotation value
+   * @param width width of stream (prepareVideo method) if you are streaming or preview (startPreview method) if you aren't streaming.
+   * @param height height of stream (prepareVideo method) if you are streaming or preview (startPreview method) if you aren't streaming.
+   */
+  public void setRotationFixed(int rotation, int width, int height, boolean isPortrait) {
+    this.rotation = rotation;
+    //Set rotation
+    Matrix.setRotateM(rotationMatrix, 0, rotation, 0, 0, 1.0f);
+    if (rotation == 90 || rotation == 270) {
+      float value = (float) height / (float) width;
+      if (isPortrait) {
+        Matrix.scaleM(rotationMatrix, 0, value, 1f, 0f);
+      } else {
+        Matrix.scaleM(rotationMatrix, 0, 1f, value, 0f);
+      }
+    } else {
+      Matrix.scaleM(rotationMatrix, 0, 1f, 1f, 0f);
+    }
     // Combine the rotation matrix with the projection and camera view
     Matrix.multiplyMM(MVPMatrix, 0, rotationMatrix, 0, MVPMatrix, 0);
   }

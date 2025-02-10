@@ -1,16 +1,39 @@
+/*
+ * Copyright (C) 2024 pedroSG94.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pedro.encoder.input.gl.render;
 
 import android.content.Context;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.Build;
+
 import androidx.annotation.RequiresApi;
+
 import com.pedro.encoder.R;
+import com.pedro.encoder.utils.ViewPort;
+import com.pedro.encoder.utils.gl.AspectRatioMode;
 import com.pedro.encoder.utils.gl.GlUtil;
-import com.pedro.encoder.utils.gl.PreviewSizeCalculator;
+import com.pedro.encoder.utils.gl.SizeCalculator;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+
+import kotlin.Pair;
 
 /**
  * Created by pedro on 29/01/18.
@@ -28,11 +51,10 @@ public class ScreenRender {
       1f, 1f, 0f, 1f, 1f, //top right
   };
 
-  private FloatBuffer squareVertex;
+  private final FloatBuffer squareVertex;
 
-  private float[] MVPMatrix = new float[16];
-  private float[] STMatrix = new float[16];
-  private boolean AAEnabled = false;  //FXAA enable/disable
+  private final float[] MVPMatrix = new float[16];
+  private final float[] STMatrix = new float[16];
 
   private int texId;
 
@@ -42,9 +64,6 @@ public class ScreenRender {
   private int aPositionHandle = -1;
   private int aTextureHandle = -1;
   private int uSamplerHandle = -1;
-  private int uResolutionHandle = -1;
-  private int uAAEnabledHandle = -1;
-
   private int streamWidth;
   private int streamHeight;
 
@@ -61,7 +80,7 @@ public class ScreenRender {
   public void initGl(Context context) {
     GlUtil.checkGlError("initGl start");
     String vertexShader = GlUtil.getStringFromRaw(context, R.raw.simple_vertex);
-    String fragmentShader = GlUtil.getStringFromRaw(context, R.raw.fxaa);
+    String fragmentShader = GlUtil.getStringFromRaw(context, R.raw.simple_fragment);
 
     program = GlUtil.createProgram(vertexShader, fragmentShader);
     aPositionHandle = GLES20.glGetAttribLocation(program, "aPosition");
@@ -69,17 +88,53 @@ public class ScreenRender {
     uMVPMatrixHandle = GLES20.glGetUniformLocation(program, "uMVPMatrix");
     uSTMatrixHandle = GLES20.glGetUniformLocation(program, "uSTMatrix");
     uSamplerHandle = GLES20.glGetUniformLocation(program, "uSampler");
-    uResolutionHandle = GLES20.glGetUniformLocation(program, "uResolution");
-    uAAEnabledHandle = GLES20.glGetUniformLocation(program, "uAAEnabled");
     GlUtil.checkGlError("initGl end");
   }
 
-  public void draw(int width, int height, boolean keepAspectRatio) {
+  public void draw(int width, int height, AspectRatioMode mode, int rotation,
+      boolean flipStreamVertical, boolean flipStreamHorizontal) {
     GlUtil.checkGlError("drawScreen start");
 
-    PreviewSizeCalculator.calculateViewPort(keepAspectRatio, width, height, streamWidth,
-        streamHeight);
+    updateMatrix(rotation, SizeCalculator.calculateFlip(flipStreamHorizontal, flipStreamVertical), MVPMatrix);
+    ViewPort viewport = SizeCalculator.calculateViewPort(mode, width, height, streamWidth, streamHeight);
+    GLES20.glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());
 
+    draw();
+  }
+
+  public void drawEncoder(int width, int height, boolean isPortrait, int rotation,
+      boolean flipStreamVertical, boolean flipStreamHorizontal) {
+    GlUtil.checkGlError("drawScreen start");
+
+    updateMatrix(rotation, SizeCalculator.calculateFlip(flipStreamHorizontal, flipStreamVertical), MVPMatrix);
+    ViewPort viewport = SizeCalculator.calculateViewPortEncoder(width, height, isPortrait);
+    GLES20.glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());
+
+    draw();
+  }
+
+  public void drawPreview(int width, int height, boolean isPortrait,
+      AspectRatioMode mode, int rotation, boolean flipStreamVertical, boolean flipStreamHorizontal) {
+    GlUtil.checkGlError("drawScreen start");
+
+    updateMatrix(rotation, SizeCalculator.calculateFlip(flipStreamHorizontal, flipStreamVertical), MVPMatrix);
+    float factor = (float) streamWidth / (float) streamHeight;
+    int w;
+    int h;
+    if (factor >= 1f) {
+      w = isPortrait ? streamHeight : streamWidth;
+      h = isPortrait ? streamWidth : streamHeight;
+    } else {
+      w = isPortrait ? streamWidth : streamHeight;
+      h = isPortrait ? streamHeight : streamWidth;
+    }
+    ViewPort viewport = SizeCalculator.calculateViewPort(mode, width, height, w, h);
+    GLES20.glViewport(viewport.getX(), viewport.getY(), viewport.getWidth(), viewport.getHeight());
+
+    draw();
+  }
+
+  private void draw() {
     GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     GLES20.glClear(GLES20.GL_DEPTH_BUFFER_BIT | GLES20.GL_COLOR_BUFFER_BIT);
 
@@ -97,8 +152,6 @@ public class ScreenRender {
 
     GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, MVPMatrix, 0);
     GLES20.glUniformMatrix4fv(uSTMatrixHandle, 1, false, STMatrix, 0);
-    GLES20.glUniform2f(uResolutionHandle, width, height);
-    GLES20.glUniform1f(uAAEnabledHandle, AAEnabled ? 1f : 0f);
 
     GLES20.glUniform1i(uSamplerHandle, 5);
     GLES20.glActiveTexture(GLES20.GL_TEXTURE5);
@@ -117,16 +170,14 @@ public class ScreenRender {
     this.texId = texId;
   }
 
-  public void setAAEnabled(boolean AAEnabled) {
-    this.AAEnabled = AAEnabled;
-  }
-
-  public boolean isAAEnabled() {
-    return AAEnabled;
-  }
-
   public void setStreamSize(int streamWidth, int streamHeight) {
     this.streamWidth = streamWidth;
     this.streamHeight = streamHeight;
+  }
+
+  private void updateMatrix(int rotation, Pair<Float, Float> scale, float[] MVPMatrix) {
+    Matrix.setIdentityM(MVPMatrix, 0);
+    Matrix.scaleM(MVPMatrix, 0, scale.getFirst(), scale.getSecond(), 1f);
+    Matrix.rotateM(MVPMatrix, 0, rotation, 0f, 0f, -1f);
   }
 }

@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2024 pedroSG94.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pedro.encoder.input.gl;
 
 import android.graphics.PointF;
@@ -33,6 +49,7 @@ public class Sprite {
 
   private PointF scale;
   private PointF position;
+  private int rotation;
 
   public Sprite() {
     reset();
@@ -105,6 +122,10 @@ public class Sprite {
     scale = new PointF(deltaX, deltaY);
   }
 
+  public void setRotation(int angle) {
+    rotation = angle;
+  }
+
   /**
    * @return Scale in percent
    */
@@ -119,9 +140,14 @@ public class Sprite {
     return position;
   }
 
+  public int getRotation() {
+    return rotation;
+  }
+
   public void reset() {
     scale = new PointF(100f, 100f);
     position = new PointF(0f, 0f);
+    rotation = 0;
   }
 
   /**
@@ -166,10 +192,29 @@ public class Sprite {
     topLeft.x += positionX;
     topLeft.y += positionY;
 
+    PointF center = new PointF(0.5f, 0.5f);
+    bottomLeft = rotatePoint(bottomLeft, center, rotation);
+    bottomRight = rotatePoint(bottomRight, center, rotation);
+    topLeft = rotatePoint(topLeft, center, rotation);
+    topRight = rotatePoint(topRight, center, rotation);
+
     //Recreate vertex like initial vertex.
     return new float[] {
         bottomRight.x, bottomRight.y, bottomLeft.x, bottomLeft.y, topRight.x, topRight.y, topLeft.x,
         topLeft.y,
     };
+  }
+
+  private PointF rotatePoint(PointF point, PointF center, int rotation) {
+    float angle = rotation % 360;
+    if (angle > 180) angle -= 360;
+    double A = angle * Math.PI / 180;
+    float cosA = (float) Math.cos(A);
+    float sinA = (float) Math.sin(A);
+    float x = point.x - center.x;
+    float y = point.y - center.y;
+    float rotationX = x * cosA - y * sinA;
+    float rotationY = y * cosA + x * sinA;
+    return new PointF(center.x + rotationX, center.y + rotationY);
   }
 }

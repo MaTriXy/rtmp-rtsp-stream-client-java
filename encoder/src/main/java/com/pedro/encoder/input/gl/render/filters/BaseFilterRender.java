@@ -1,9 +1,27 @@
+/*
+ * Copyright (C) 2024 pedroSG94.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pedro.encoder.input.gl.render.filters;
 
 import android.content.Context;
 import android.opengl.GLES20;
 import android.os.Build;
+
 import androidx.annotation.RequiresApi;
+
 import com.pedro.encoder.input.gl.render.BaseRenderOffScreen;
 import com.pedro.encoder.input.gl.render.RenderHandler;
 import com.pedro.encoder.utils.gl.GlUtil;
@@ -23,8 +41,7 @@ public abstract class BaseFilterRender extends BaseRenderOffScreen {
   protected int previousTexId;
   private RenderHandler renderHandler = new RenderHandler();
 
-  public void initGl(int width, int height, Context context, int previewWidth,
-      int previewHeight) {
+  public void initGl(int width, int height, Context context, int previewWidth, int previewHeight) {
     this.width = width;
     this.height = height;
     this.previewWidth = previewWidth;
@@ -32,6 +49,11 @@ public abstract class BaseFilterRender extends BaseRenderOffScreen {
     GlUtil.checkGlError("initGl start");
     initGlFilter(context);
     GlUtil.checkGlError("initGl end");
+  }
+
+  public void setPreviewSize(int previewWidth, int previewHeight) {
+    this.previewWidth = previewWidth;
+    this.previewHeight = previewHeight;
   }
 
   public void initFBOLink() {
